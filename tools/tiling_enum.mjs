@@ -7,6 +7,13 @@
 //   eachRectTiling     —— 朴素版：取第一个未定格，枚举它所属矩形的一切可能尺寸（尺寸循环）。
 //   countAnchoredTilings —— 锚定版：同样取第一个未定格，但按"左上角 = 该格"来展开 (r1,c1)。
 //   两者对同一个 w×h 必须给出同一个分块数，且 1×n 的分块数必须等于可手算的 2^(n-1)。
+//
+// 【分层】本文件只留**台架专用**的东西：穷举枚举器与 quantile 都是引擎不许调的走法。
+// randomTiling / markersFromTiling / mulberry32 是生成器出货要用的，它们的家在
+// js/engine/tiling.js，本文件只把这三个名字**再导出**一次，好让台架的 import 路径不动——
+// 定义仍然只有一份（js 侧），这里没有第二份拷贝。
+
+export { randomTiling, markersFromTiling, mulberry32 } from '../js/engine/tiling.js';
 
 /** 朴素版：逐个分块回调 cb(labeling)，labeling 是 Int8Array（区域 id）。 */
 export function eachRectTiling(w, h, cb, budget = Infinity) {
@@ -65,76 +72,6 @@ export function countAnchoredTilings(w, h, budget = Infinity) {
   }
   dfs(0, 0);
   return { hit, stopped };
-}
-
-/**
- * 随机长出一个满足 accept 的分块，返回矩形列表；找不到返回 null。
- * accept(occ, w, h, r0, c0, r1, c1) 在"刚放好这一块"的状态下判断是否允许，
- * 传禁四角检查就是它——生长时就守住角，而不是切完再筛。
- */
-export function randomTiling(w, h, { accept, rnd, nodeBudget = 500000 }) {
-  const N = w * h;
-  const occ = new Int32Array(N).fill(-1);
-  const placed = [];
-  let next = 0, nodes = 0;
-  function dfs(pr, pc) {
-    if (++nodes > nodeBudget) return false;
-    const clear = new Uint8Array(w).fill(1);   // 每层一份，理由见 countAnchoredTilings
-    const cands = [];
-    for (let r1 = pr; r1 < h; r1++) {
-      let rowAnd = 1;
-      for (let c1 = pc; c1 < w; c1++) {
-        if (clear[c1] && occ[r1 * w + c1] === -1) clear[c1] = 1; else clear[c1] = 0;
-        rowAnd = rowAnd && clear[c1];
-        if (rowAnd) cands.push([r1, c1]);
-      }
-    }
-    for (const [r1, c1] of order(cands, rnd)) {
-      const rid = next++;
-      for (let r = pr; r <= r1; r++) for (let c = pc; c <= c1; c++) occ[r * w + c] = rid;
-      placed.push({ r0: pr, c0: pc, r1, c1, rid });
-      let go = false;
-      if (accept(occ, w, h, pr, pc, r1, c1)) {
-        let p2 = -1;
-        for (let i = 0; i < N; i++) if (occ[i] === -1) { p2 = i; break; }
-        go = p2 < 0 || dfs((p2 / w) | 0, p2 % w);
-      }
-      if (go) return true;
-      placed.pop();
-      for (let r = pr; r <= r1; r++) for (let c = pc; c <= c1; c++) occ[r * w + c] = -1;
-      next--;
-    }
-    return false;
-  }
-  return dfs(0, 0) ? placed : null;
-}
-
-function order(list, rnd) {
-  if (!rnd) return list;
-  for (let i = list.length - 1; i > 0; i--) {
-    const j = (rnd() * (i + 1)) | 0;
-    const t = list[i]; list[i] = list[j]; list[j] = t;
-  }
-  return list;
-}
-
-/** 由矩形列表读出记号盘：每块随机一格放记号，类型由该块形状决定。 */
-export function markersFromTiling(rects, rnd) {
-  return rects.map((p) => {
-    const hh = p.r1 - p.r0 + 1, ww = p.c1 - p.c0 + 1;
-    const type = ww > hh ? 0 : hh > ww ? 1 : 2;
-    const r = p.r0 + ((rnd() * hh) | 0), c = p.c0 + ((rnd() * ww) | 0);
-    return { r, c, type };
-  });
-}
-
-export function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 /** 分位数：默认返回排序后的 p 位置（取尾巴而不是中位×2，见项目记忆）。 */

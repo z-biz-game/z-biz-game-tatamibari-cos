@@ -33,15 +33,17 @@
 // （179 分 / 171 分），差别来自某次试删的证明赶上一次 1 ms 级的抖动。现在谓词只看
 // sols / 节点数 / 结构 / 铅笔（全是确定性量），`budgetMs` 只作读数与门禁（balance 第四段红给你看）。
 //
-// 分层说明：本文件从 `tools/` 借 `randomTiling`/`invalidReason` 两条通道，是**故意的**——
-// 分块枚举与"什么算合法盘"在本仓只许有一份定义（tools/tiling_enum.mjs:1-9 已经解决过的事不重写第二遍，
-// 合法性定义也不能在引擎里再造一份）。本轮不起服务、不碰 UI，等下一轮真要打包给浏览器时，
-// 把这两个文件挪进 js/ 即可，语义不变。
+// 分层说明：本文件用的 `randomTiling`（./tiling.js）与 `TATAMI`/`invalidReason`（./validate.js）
+// 是**同一份定义**，只是家从 tools/ 搬进了 js/engine/——分块怎么长、"什么算合法盘"在本仓只许有
+// 一份定义（穷举全部矩形分块那种封不住成本的走法仍然只住在 tools/，引擎不许调），
+// 而运行时模块不许去够 tools/：本站要作为静态站发给浏览器，那条路径要么 404，
+// 要么把台架代码当产品代码发出去。`tools/tiling_enum.mjs` 与 `tools/reference.mjs` 现在从这两处
+// 再导出同样的名字，台架的 import 路径与断言都不受影响，语义一行没变。
 
 import { countAnchored, MARKER_CHAR } from './counter.js';
 import { solve } from './pencil.js';
-import { markersFromTiling, mulberry32, randomTiling } from '../../tools/tiling_enum.mjs';
-import { TATAMI, invalidReason } from '../../tools/reference.mjs';
+import { markersFromTiling, mulberry32, randomTiling } from './tiling.js';
+import { TATAMI, invalidReason } from './validate.js';
 
 /** 种子：数字直接用，字符串走一遍定长的 FNV-1a（两条通道都确定性，且都不碰 Math.random）。 */
 export function seedToNumber(seed) {
@@ -185,7 +187,7 @@ export function structureOk(blocks, { minRegions = 1, maxBlockCells = Infinity }
 // ---------------------------------------------------------------- 种一张合法盘
 /**
  * 长一张合法盘：`randomTiling` 生长时就守住禁四角（不是切完再筛），每块随机一格给记号，
- * 记号类型由该块形状读出。合法性走 `reference.invalidReason` 那条独立通道。
+ * 记号类型由该块形状读出。合法性走 `validate.invalidReason` 那条独立通道。
  */
 export function plantedBoard(w, h, rnd, struct = {}) {
   const rects = randomTiling(w, h, { rnd, accept: TATAMI });

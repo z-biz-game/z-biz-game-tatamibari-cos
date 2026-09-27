@@ -1,30 +1,17 @@
-// 测试台参照件：整盘合法性检查与真值盘生成
+// 测试台参照件：真值盘生成与解集签名
 //
-// 这些函数**只服务于测试台**，产品代码一行都不引用它们——这是故意的：
-// 引擎的自证通道（rules.js + counter.js + pencil.js）之间可以有分歧，
-// 但"什么算合法盘"必须只有一份定义，否则两个测试台会各自把 bug 写成期望。
+// 【分层】"什么算合法盘"的定义（ringBad / TATAMI / invalidReason）现在住在
+// js/engine/validate.js —— 因为出题器出货就要用它，而运行时模块不许去够 tools/。
+// 本文件把那三个名字**再导出**一次，台架的 import 路径与断言一行都不用改；
+// 仓库里仍然只有一份定义（这是关键：合法定义写第二遍，两个测试台就会各自把 bug 写成期望）。
+// 留下的都是台架专用的读数件：labelingOf / rectsOf / signature / sampleBoard——
+// 引擎自己一行都不引用它们（出货走 generate.js 的 plantedBoard，另有它自己的读数通道）。
 
-import { isRectangular, windmillPoints, aroundPoint } from '../js/engine/rules.js';
-import { aspectOk } from '../js/engine/counter.js';
-import { randomTiling, markersFromTiling, mulberry32 } from './tiling_enum.mjs';
+import { randomTiling, markersFromTiling, mulberry32 } from '../js/engine/tiling.js';
+import { TATAMI, invalidReason } from '../js/engine/validate.js';
 
-/** 生长时的禁四角守门：走 rules.js 的 aroundPoint，与 counter.js 内部的环带实现无关 */
-export function ringBad(occ, w, h, r0, c0, r1, c1) {
-  for (let y = r0; y <= r1 + 1; y++) {
-    const rowEdge = y === r0 || y === r1 + 1;
-    for (let x = c0; x <= c1 + 1; x++) {
-      if (!(rowEdge || x === c0 || x === c1 + 1)) continue;
-      if (x < 1 || y < 1 || x > w - 1 || y > h - 1) continue;
-      const q = aroundPoint(occ, w, x, y);
-      if (q.some((v) => v < 0)) continue;
-      if (q[0] !== q[1] && q[0] !== q[2] && q[0] !== q[3] &&
-        q[1] !== q[2] && q[1] !== q[3] && q[2] !== q[3]) return true;
-    }
-  }
-  return false;
-}
-
-export const TATAMI = (occ, w, h, r0, c0, r1, c1) => !ringBad(occ, w, h, r0, c0, r1, c1);
+// 老路径 re-export：balance / counter-test / pencil-test 仍从 './reference.mjs' 取这两条通道。
+export { TATAMI, invalidReason };
 
 /** 矩形列表 → 每格区域号（-1 = 没铺满） */
 export function labelingOf(rects, w, h) {
@@ -47,33 +34,6 @@ export function rectsOf(lab, w, h) {
     else { if (r < b.r0) b.r0 = r; if (r > b.r1) b.r1 = r; if (c < b.c0) b.c0 = c; if (c > b.c1) b.c1 = c; }
   }
   return [...acc.values()].sort((a, b) => (a.r0 - b.r0) || (a.c0 - b.c0));
-}
-
-/** 整盘合法性检查，返回 null 表示合法。只用 rules.js，与各求解器的增量剪枝无关。 */
-export function invalidReason(w, h, markers, rects) {
-  const lab = new Int32Array(w * h).fill(-1);
-  rects.forEach((p, id) => {
-    for (let r = p.r0; r <= p.r1; r++) for (let c = p.c0; c <= p.c1; c++) lab[r * w + c] = id;
-  });
-  if (lab.some((v) => v < 0)) return '没铺满';
-  if (!isRectangular(lab, w, h)) return '有块不是长方形';
-  if (windmillPoints(lab, w, h).length) return '有四块共角';
-  if (rects.length !== markers.length) return '块数与记号数不等';
-  const owner = new Int32Array(w * h).fill(-1);
-  markers.forEach((m, mi) => { owner[m.r * w + m.c] = mi; });
-  const perRegion = new Int32Array(rects.length).fill(-1);
-  for (let i = 0; i < w * h; i++) {
-    if (owner[i] < 0) continue;
-    const id = lab[i];
-    if (perRegion[id] >= 0) return '某块含两个记号';
-    perRegion[id] = owner[i];
-  }
-  for (let id = 0; id < rects.length; id++) {
-    if (perRegion[id] < 0) return '某块没有记号';
-    const p = rects[id], m = markers[perRegion[id]];
-    if (!aspectOk(p.c1 - p.c0 + 1, p.r1 - p.r0 + 1, m.type)) return '方向与记号不符';
-  }
-  return null;
 }
 
 /** 解集签名：矩形按左上角排序，带它吞掉的记号 id */
