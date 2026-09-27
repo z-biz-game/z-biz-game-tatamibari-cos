@@ -37,9 +37,9 @@ import {
   markerGrid, plantedBoard, proveUnique, shuffled, structureOk,
 } from '../js/engine/generate.js';
 import { solve } from '../js/engine/pencil.js';
-import { countAnchored, MARKER_CHAR } from '../js/engine/counter.js';
+import { countAnchored, countCover, MARKER_CHAR } from '../js/engine/counter.js';
 import { markersFromTiling, mulberry32, quantile } from './tiling_enum.mjs';
-import { invalidReason } from './reference.mjs';
+import { invalidReason, signature } from './reference.mjs';
 
 const MEASURE = process.env.MEASURE === '1';
 const N = Number(process.env.SAMPLES || 12);
@@ -259,6 +259,40 @@ for (const r of rows) {
   if (!MEASURE && tail > msCeil) fail(`${r.tier.name} 复核尾巴 p95 ${tail.toFixed(2)} ms 盖过基线 ${r.tier.budgetMs} ms 的 ${HEADROOM} 倍（判定线 ${msCeil.toFixed(2)} ms，其间 ${slow}/${r.boards.length} 局单次击穿）：整段都在搬家，这一档的复核普遍变慢了`);
   if (stopped) fail(`${r.tier.name} 有 ${stopped} 局复核在 nodeBudget=3e6 内没数完`);
   if (notUniq) fail(`${r.tier.name} 有 ${notUniq} 局计数器没证到唯一 —— "推得完 ⟹ 解唯一" 被打破，引擎有 bug`);
+}
+
+// ============================================================ 四b、第二套穷举实现逐盘对答案
+// 承诺二那一段跑的是 countAnchored（锚定性质：每层放"当前最靠前的空格"所属的那块）。
+// 出货不能只靠它自己再说一遍——所以要拿**另一种搜索**再数一次：countCover 不假设锚定性质，
+// 每个记号先枚举它能落在的任何位置的矩形，再按"候选最少的未覆盖格"（MRV）分支，覆盖用
+// BigInt 位掩码管。两套只共享规则语义，不共享搜索。
+// 这一段的存在理由：两套的解数一致而**解集**不同，是"数到 2 就停"这类口径 bug 唯一的显形方式，
+// 而只比 sols 数字比不出来。counter-test 那套对照跑的是 sampleBoard 的盘；这里跑的是
+// 本轮**真的出货**的每一张——浏览器里玩家拿到的就是这些盘。
+console.log('\n== 承诺二之续：出货的每一盘都要被第二套穷举实现（countCover · MRV + BigInt 位掩码）再数一遍，且解集逐块相同 ==');
+for (const r of rows) {
+  let agree = 0, setDiff = 0, countDiff = 0, stopped = 0;
+  let worstNodes = 0;
+  const detail = [];
+  for (const g of r.boards) {
+    const A = [], C = [];
+    const a = countAnchored(g.w, g.h, g.markers, { limitSolutions: 2, nodeBudget: 3e6, onSolution: (s) => A.push(signature(s)) });
+    const c = countCover(g.w, g.h, g.markers, { limitSolutions: 2, nodeBudget: 3e6, onSolution: (s) => C.push(signature(s)) });
+    worstNodes = Math.max(worstNodes, c.nodes);
+    if (a.stopped || c.stopped) { stopped++; detail.push(`${g.seed} 没数完（anchored ${a.stopped} / cover ${c.stopped}）`); continue; }
+    // 解集比对只在两边都数到底时成立；a.sols>1 的盘上面那段已经判过红，这里不重复定罪，
+    // 但"截断前缀本来就该不一样"（counter-test 那句话）意味着不能拿 limit 之后的前缀比集合。
+    if (a.sols !== c.sols) { countDiff++; detail.push(`${g.seed} 解数分歧 anchored=${a.sols} cover=${c.sols}`); continue; }
+    if (a.sols === 1 && A.sort().join('|') !== C.sort().join('|')) {
+      setDiff++; detail.push(`${g.seed} 解集分歧 anchored=[${A.join('|')}] cover=[${C.join('|')}]`);
+      continue;
+    }
+    agree++;
+  }
+  console.log(`  ${setDiff || countDiff || stopped ? '✗' : '✓'} ${r.tier.name}：两套逐块一致 ${agree}/${r.boards.length} · 解数分歧 ${countDiff} · 解集分歧 ${setDiff} · 没数完 ${stopped} · cover 节点 max ${worstNodes}`);
+  if (stopped) fail(`${r.tier.name} 有 ${stopped} 盘第二套穷举在 nodeBudget=3e6 内没数完 —— 没数完就等于没复核`);
+  if (countDiff) fail(`${r.tier.name} 有 ${countDiff} 盘两套穷举解数不同：${detail[0]}`);
+  if (setDiff) fail(`${r.tier.name} 有 ${setDiff} 盘两套穷举解集不同（数字相同也算分歧）：${detail[0]}`);
 }
 
 // ============================================================ 五、剪完之后每条记号都不冗余
