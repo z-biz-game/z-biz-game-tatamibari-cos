@@ -221,6 +221,19 @@ bash tools/verify.sh                   → node 夹具 3/3 · root 10/10 场景 
 BASE_URL=<已部署站点> bash tools/verify.sh → 只跑部署件这一种形态（用法见 tools/verify.sh:8-12）
 ```
 
+`bash tools/verify.sh` 那一条现在有三种跑法（用法在 `tools/verify.sh:8-12`），本轮三种都绿：本机
+root + prefix 双形态（336 ×2）、`SHAPES=root` 单形态、以及 `BASE_URL=https://z-biz-game.github.io/
+z-biz-game-tatamibari-cos/` 只打线上件那一跑（336 条 / 0 failed / 15.4 s，node 夹具那 3/3 条仍然
+由本地 node 重算）。线上那 12 个发送件（`index.html` + `css/` + `js/`，`git ls-files` 数出来的）
+与磁盘逐文件 sha256 前 12 位相同——线上绿的是这份字节，不是本机侥幸能跑的那一份。CI 的 browser job
+在同一条 `bash tools/verify.sh` 上给出 root 336 / prefix 336 / 0 failed（ubuntu-24.04；
+`node-version: 22` 是这个 job 的，check 那个 job 用另一版）。远端首跑（`43518d2`）两个 job 与 Pages
+部署全绿，Pages 是在 push **之前**用 `build_type: workflow` 开好的——先推再开会让 configure-pages
+撞上一个还不存在的 workflow。
+末行的措辞也是这一轮改的：旧文案在 `SHAPES=root` 或 `BASE_URL=` 那一跑里照样打印"两种 URL 形态"，
+而那一跑其实只覆盖一种——现在它打印的是这一跑**实际**跑过的形态名，把这句抄进文档的人才不会
+把单形态的绿读成双形态的绿。
+
 端口是这一仓的，不是家族的公共汽车：HTTP 5316 / CDP 9366 / 前缀 5399（`tools/verify.sh:31-33`，
 同一份号也写在 `tools/playtest.cjs` 的头注释里）。换端口要同时改那两处，否则下一个人抄到的是
 一张已经被别人坐下的桌子。前缀形态用"一个只含本仓软链的目录"交给 `python3 -m http.server` 端起来

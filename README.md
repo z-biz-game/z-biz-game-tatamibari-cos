@@ -7,8 +7,9 @@
 本文里的数字只有两类来源：仓里读得到的代码（写成 `文件:行号`），和 2026-09-28 那一轮全绿跑出来的
 读数。跑的命令是 `npm run check`、`npm test`（三套 65 / 74 / 206 条）、`SAMPLES=24 node
 tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2 / Apple M5 Pro
-15 核。引擎断言与 `npm run check` 是当场重跑的（65 / 74 / 206 三条读数与上面同一轮）；难度分位表取
-06:09 那一跑（之前同代码还连跑过两次，只有墙钟列在动），浏览器门禁取 06:14 那一跑，逐条列在下面。
+15 核。引擎断言与 `npm run check` 是当场重跑的（65 / 74 / 206 这三条读数 CI 的 ubuntu runner 上也是
+同一组）；难度分位表取 06:09 那一跑（之前同代码还连跑过两次，只有墙钟列在动），浏览器门禁取 06:20
+那两次跑（本机双形态与线上单形态各一跑），逐条列在下面。
 
 **代码 > 本文档**：本文与 `js/`、`tools/` 冲突时，以代码和它跑出来的输出为准。
 
@@ -89,12 +90,15 @@ tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2
   ——本盘不出"（`js/ui/game.js:147-149`，界面在 `js/main.js:270-271` 把它打到菜单状态行）。
   出货盘必然推得完，正常玩法碰不到这句话；闸断言的是它的**反面**（`tools/scenarios.js:486`、
   `:1176` 都钉 `integrity === null`），那句拒绝文案长什么样、渲染在哪，没有任何断言读过。
-- **只在本地 headless Chrome 里绿过**。Safari、Firefox、真机 iOS/Android、低配设备未经验证。
-  `bash tools/verify.sh` 跑的是本机 root 形态与本机带 `/z-biz-game-tatamibari-cos/` 前缀的两种
-  URL（两种形态各 10 个场景、各 336 条、0 failed；06:14 那一跑 root 10 s · prefix 9 s · 整轮
-  21.7 秒）。已部署站点那一种形态走
-  `BASE_URL=` 那条路（`tools/verify.sh` 的用法块 `:8-12`），push 之后复跑，跑过之后数字才会
-  出现在这里。部署工作流是无构建的文件拷贝（`.github/workflows/pages.yml`）。
+- **只在 headless Chrome 里绿过**（本机 macOS 与 CI 的 ubuntu-24.04 两种环境，Safari、Firefox、真机
+  iOS/Android、低配设备未经验证）。`bash tools/verify.sh` 在本机跑 root 形态与带
+  `/z-biz-game-tatamibari-cos/` 前缀的两种 URL（各 10 个场景、各 336 条、0 failed，root 11 s ·
+  prefix 9 s · 整轮 22.1 秒）；CI 的 browser job 在同一条命令上给出 336/336、0 failed（root 10 s ·
+  prefix 9 s）。已部署站点那一种形态走 `BASE_URL=` 那条路（`tools/verify.sh` 的用法块 `:8-12`）：
+  远端首跑 `43518d2` 的两个 job 与 Pages 部署都绿之后复跑，线上件 **336 条 / 0 failed / 15.4 秒**，
+  而且发送的那 12 个文件（`index.html` + `css/` + `js/`，`git ls-files` 数出来的）线上与本地
+  sha256 前 12 位一一相同——闸绿的是那份字节，不是本机侥幸能跑的那份。部署工作流是无构建的文件
+  拷贝（`.github/workflows/pages.yml`）。
 - **无障碍只做了两件事**：`prefers-reduced-motion` 有一整套降级（`css/game.css:546`），画布有
   `role="img"` 与一句说明性的 `aria-label`（`index.html:102`）。键盘导航顺序、读屏播报、
   `aria-live` 的实际朗读内容都没有断言过——闸点的是画布像素与 DOM 文本。
