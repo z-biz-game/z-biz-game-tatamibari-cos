@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: syntax + engine guarantees
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No npm install: the game has zero runtime dependencies, and pulling Electron into
+      # CI to prove nothing is how a repo starts failing on a network flake.
+      - name: Syntax check every source
+        run: |
+          for f in $(git ls-files 'js/*.js' 'js/*/*.js'); do node --check "$f" || exit 1; done
+          node --check server.cjs
+          node --check electron/main.cjs
+          node --check electron/preload.cjs
+          for f in $(git ls-files 'tools/*.mjs'); do node --check "$f" || exit 1; done
+
+      # The layering invariant, and it has already been broken once in this repo's history:
+      # `js/` ships to the browser, `tools/` does not. A runtime module importing tools/ is
+      # either a 404 in production or bench code served as product code, so no gate below
+      # can be trusted to mean "the shipped bundle is the tested code" while one exists.
+      - name: js/ never imports tools/
+        run: |
+          if grep -rnE "(import|export)[^;]*from '[^']*tools/" js/ ; then
+            echo '::error::运行时模块（js/）去够了 tools/ —— 分层又倒了'
+            exit 1
+          fi
+
+      # The real gate: "what counts as a legal board" is one definition in js/engine/, and these
+      # three files pin it from three independent directions (rules, two counters, pencil chain).
+      # The counts are the contract: 65 + 74 + 206 on this round's measured run.
+      # 206 is the count *after* A0 started scanning the directory instead of a hardcoded
+      # three-file list — see tools/pencil-test.mjs:206-215.
+      - name: Rule tests (legal-board definition, two independent readings)
+        run: node tools/rule-test.mjs
+
+      - name: Counter tests (anchored vs. exact-cover, limitSolutions semantics)
+        run: node tools/counter-test.mjs
+
+      - name: Pencil tests (every deduction audited against ground truth)
+        run: node tools/pencil-test.mjs
+
+      # The ladder is a promise, not a caption: TIERS[].band and TIERS[].budgetMs are selection
+      # targets backfilled from this table, and the step goes red when a tier stops landing in
+      # its own band, when the medians stop ordering, when a shipped board stops being
+      # pencil-solvable from the empty board, or when the independent counter stops proving
+      # uniqueness inside the node budget. It also re-measures the "these sizes cannot be
+      # shipped" conclusion (UNSHIPPABLE) every run — see tools/balance.mjs section 8.
+      - name: Difficulty ladder is still measured
+        run: node tools/balance.mjs
+        env:
+          SAMPLES: "24"
+
+      - name: Entry files exist
+        run: test -f index.html && grep -q '<canvas' index.html && grep -q 'js/main.js' index.html
+
+  # The browser gate is where this repo's four promises stop being prose. It runs BOTH URL
+  # shapes (tools/verify.sh:4-6): the repo-as-document-root shape and the Pages shape
+  # `/<repo>/`, and only the second one can see a page-level `/js/...` specifier resolve to a
+  # 404 (verify.sh:14-18). 10 scenarios × 336 checks, measured locally 2026-09-28: root 336
+  # checks 0 failed in 9 s, prefix identical, whole run 20.4 s.
+  browser:
+    name: real browser gate (both URL shapes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        # 22, not the 20 the check job uses: tools/playtest.cjs is a raw CDP driver written
+        # against Node's global WebSocket/fetch (playtest.cjs:1, :84, :96), which only exist
+        # from 22 on. On 20 the first attach dies with "WebSocket is not defined" and the job
+        # goes red before a single assertion runs.
+        with:
+          node-version: 22
+      # ubuntu-latest ships google-chrome on PATH, which is what tools/verify.sh looks for
+      # after the two macOS bundle paths (verify.sh:46-52). No install step: apt/dpkg on a
+      # pinned image is a flake source, and a step that can die of networking would read as
+      # "the game is broken" when nothing about the game changed.
+      #
+      # Unlike the sibling repos, this harness DOES override the viewport — the narrow scenario
+      # asserts `innerWidth,innerHeight === 390,844` verbatim (verify.sh:40-41), applied with
+      # Emulation.setDeviceMetricsOverride before the first navigation. That is a CDP-level
+      # override on a headless target, so it still needs no xorg and no window manager. Do NOT
+      # add --use-gl=angle --use-angle=swiftshader: half of these assertions read canvas pixels
+      # back (wallPixel / mergedPixel / --success tint), and a software rasteriser makes them
+      # lie (verify.sh:24-26).
+      - name: Browser gate (root + prefix)
+        env:
+          # verify.sh's own watchdog default; the local both-shape run is 20.4 s, so this is
+          # headroom for a shared runner, not a budget the gate is graded against. Raising it
+          # cannot turn a red gate green — it only stops the watchdog killing a run that is
+          # merely slow.
+          WD_TIMEOUT: 900
+        run: bash tools/verify.sh
