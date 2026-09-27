@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1017" />
+<title>畳バリ · Tatamibari 长方形切块推理</title>
+<meta name="description" content="畳バリ（Tatamibari）：用墙把 N×M 棋盘切成若干长方形块，每块恰好一个记号——「-」要宽大于高、「|」要高于宽、「+」要正方形，且任何一个格点上不许四块共角。引擎当前出货的只有 4×4 到 6×6 五档：每盘由穷举计数器证明恰好一个解，也每盘都能用 R1–R7 七条铅笔规则从空盘推到底；难度分是 tools/balance.mjs 量出来的（npm run balance），提示只念推得出的那一步。" />
+<!-- 内联图标：不写这一条，浏览器会去 Pages 域名根上探 /favicon.ico 并留一个 404。 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1017'/%3E%3Crect x='5' y='5' width='22' height='22' rx='2' fill='none' stroke='%23e8eef7' stroke-width='2'/%3E%3Cpath d='M16 5 V27 M5 16 H16' stroke='%232b8f89' stroke-width='2.2' fill='none'/%3E%3Cpath d='M9 11 H13' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M19 9 H23 M21 7 V11' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M21 19 V23' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/game.css" />
+</head>
+<body>
+<div id="shell">
+  <header id="topbar">
+    <h1><span class="ja">畳バリ</span> · Tatamibari</h1>
+    <p class="meta">长方形切块 · 每块一个记号 · 零猜测</p>
+  </header>
+
+  <main>
+    <!-- ============================ 选档 ============================ -->
+    <section id="view-menu">
+      <div class="rule-card">
+        <h2>这一盘怎么算铺开</h2>
+        <ul class="rule-list">
+          <li><span class="glyph">-</span><span>这一格属于一个 <em>宽 &gt; 高</em> 的长方形块。</span></li>
+          <li><span class="glyph">|</span><span>这一格属于一个 <em>高 &gt; 宽</em> 的长方形块。</span></li>
+          <li><span class="glyph">+</span><span>这一格属于一个 <em>正方形</em>（宽 = 高）块。</span></li>
+          <li><span class="glyph">▢</span><span>块与块之间用墙分开：<em>每一块都是长方形</em>，而且<em>每块恰好一个记号</em>——多一个、少一个都算错。</span></li>
+          <li><span class="glyph">✛</span><span>再加一条：<em>任何一个格点上不能四块共角</em>（十字路口不能凑齐四家）。</span></li>
+        </ul>
+        <p class="source">
+          以上五条与引擎里的判据一一对应：<code>js/engine/counter.js</code> 给记号字符与方向（<code>MARKER_CHAR</code> /
+          <code>aspectOk</code>），<code>js/engine/rules.js</code> 给长方形与四块共角，<code>js/engine/validate.js::invalidReason</code>
+          是整盘合不合法的<em>唯一</em>一份定义——页面上的胜负判定就是调它，没有第二套。
+        </p>
+      </div>
+
+      <div class="rule-card" id="resume-card" hidden>
+        <h2>上一盘还没下完</h2>
+        <p id="resume-summary"></p>
+        <div id="resume-actions">
+          <button id="btn-resume" type="button">继续这盘</button>
+          <button id="btn-discard" type="button" class="danger">丢弃存档</button>
+        </div>
+      </div>
+
+      <div class="rule-card">
+        <h2>选一档</h2>
+        <ul class="tier-list" id="tier-list"></ul>
+        <p class="source" id="unshippable-note"></p>
+      </div>
+
+      <div class="rule-card">
+        <div class="field">
+          <div class="field-label">指定出题（同一个 seed 同一张盘）</div>
+          <div class="field-row">
+            <select id="tier-pick" aria-label="哪一档"></select>
+            <input id="seed-input" type="text" inputmode="latin" autocomplete="off" spellcheck="false" placeholder="seed：例如 42 / tatamibari-2026" />
+            <button id="btn-seed" type="button">开这一盘</button>
+            <button id="btn-daily" type="button">这一档的日课 · 全世界同一盘</button>
+          </div>
+        </div>
+        <p id="menu-status" aria-live="polite"></p>
+      </div>
+
+      <div class="rule-card">
+        <h2>纪录（先比没求助的提示次数，再比步数，最后比用时）</h2>
+        <ul class="best-list" id="best-list"></ul>
+        <p class="best-line" id="totals-line"></p>
+      </div>
+    </section>
+
+    <!-- ============================ 对局 ============================ -->
+    <section id="view-game" hidden>
+      <div class="hud">
+        <div class="hud-left">
+          <span class="pill" id="hud-tier">—</span>
+          <span class="pill"><span class="tag">尺寸</span><b id="hud-size">—</b></span>
+          <span class="pill clip"><span class="tag">seed</span><b id="hud-seed">—</b></span>
+          <span class="pill"><span class="tag">难度实测</span><b id="hud-score">—</b></span>
+        </div>
+        <div class="hud-right">
+          <span class="pill"><span class="tag">用时</span><b id="hud-clock">00:00</b></span>
+        </div>
+      </div>
+
+      <div class="hud">
+        <div class="hud-left">
+          <span class="pill" id="pill-state">—</span>
+          <span class="pill"><span class="tag">块 / 记号</span><b id="hud-blocks">0/0</b></span>
+          <span class="pill"><span class="tag">未定格</span><b id="hud-unknown">0</b></span>
+          <span class="pill"><span class="tag">墙</span><b id="hud-walls">0</b></span>
+          <span class="pill"><span class="tag">打通</span><b id="hud-merged">0</b></span>
+          <span class="pill"><span class="tag">步数</span><b id="hud-moves">0</b></span>
+          <span class="pill"><span class="tag">提示</span><b id="hud-hints">0</b></span>
+          <span class="pill"><span class="tag">说不通</span><b id="hud-clash">0</b></span>
+        </div>
+      </div>
+
+      <div id="board-frame">
+        <canvas id="board" role="img" aria-label="畳バリ棋盘：点或拖一条格子的边界来画墙，切到打通工具表示这两格同块"></canvas>
+        <span id="board-preview" hidden></span>
+        <div id="busy" hidden>
+          <div class="busy-inner">
+            <div class="spinner" aria-hidden="true"></div>
+            <p id="busy-text">正在出题——这一盘要现证明确唯一解。</p>
+          </div>
+        </div>
+        <div id="win-veil" hidden>
+          <div id="win-card">
+            <h2>铺满了，每一块都是长方形</h2>
+            <ul class="win-list">
+              <li>提示 <b id="win-hints">0</b> 次 · 步数 <b id="win-moves">0</b> · 用时 <b id="win-time">00:00</b></li>
+              <li id="win-proof-line"></li>
+              <li id="win-record-line"></li>
+            </ul>
+            <p id="win-note"></p>
+            <div class="win-actions">
+              <button id="btn-again" type="button">同档再来一局</button>
+              <button id="btn-menu-2" type="button">回选档</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="tool-group" role="group" aria-label="画线工具">
+          <button id="tool-wall" class="tool-btn active" type="button" aria-pressed="true">▐ 画墙</button>
+          <button id="tool-same" class="tool-btn" type="button" aria-pressed="false">═ 打通</button>
+          <button id="tool-erase" class="tool-btn" type="button" aria-pressed="false">◻ 擦掉</button>
+        </div>
+        <div class="tool-group" role="group" aria-label="操作">
+          <button id="btn-hint" class="tool-btn" type="button">提示<span class="tag" id="hint-left"></span></button>
+          <button id="btn-prune" class="tool-btn" type="button">补一眼墙<span class="tag">免费</span></button>
+          <button id="btn-undo" class="tool-btn" type="button">撤销</button>
+        </div>
+        <span class="spacer"></span>
+        <div class="tool-group" role="group" aria-label="这盘">
+          <button id="btn-new" class="tool-btn" type="button">换一局</button>
+          <button id="btn-menu" class="tool-btn" type="button">回选档</button>
+        </div>
+      </div>
+
+      <p id="status-line" aria-live="polite"></p>
+
+      <p class="legend">
+        <b>点一下</b> 一条边界 · <b>按住拖</b> 一笔连画 · <b>从自己已画的线上起笔</b> 就是擦掉 ·
+        <b>1</b> <b>2</b> <b>3</b> 选工具 · <b>H</b> 提示 · <b>G</b> 补一眼墙 · <b>Z</b> 撤销 · <b>N</b> 换一局
+      </p>
+      <p class="legend">
+        提示走的是出题时那条铅笔序列（<code>pencil.solve()</code> 在空盘上跑出来的推导，R1–R7 每一步都在<b>所有</b>合法分块上成立）：
+        它只会说"这一条边必须是墙/必须打通"，不会给你一个线索推不出的答案，也<b>不替你收尾整盘</b>。
+      </p>
+    </section>
+  </main>
+
+  <footer id="foot">
+    <span>
+      每盘唯一解在看盘时由一条<b>不推理、只穷尽</b>的通道再数一遍：<code>generate.proveUnique</code> →
+      <code>counter.countAnchored({ limitSolutions: 2 })</code>（锚定性质那一路）；仓里还有第三条独立实现
+      <code>counter.countCover</code>（精确覆盖 + MRV）在 <code>tools/counter-test.mjs</code> 里跟它对答案 ·
+      难度分与其区间出自 <code>npm run balance</code>（<code>tools/balance.mjs</code>，本轮 24 局/档）·
+      4×4 到 6×6 之外本轮出不起货，理由与抽数写在 <code>generate.js::UNSHIPPABLE</code>。
+    </span>
+    <button id="btn-reset" class="danger" type="button">清空本地存档</button>
+  </footer>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

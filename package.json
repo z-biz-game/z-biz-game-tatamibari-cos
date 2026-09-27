@@ -1,0 +1,33 @@
+{
+  "name": "tatamibari",
+  "version": "1.0.0",
+  "description": "畳バリ Tatamibari — 零猜测的切块推理. 出货的每一盘都同时被两条独立通道判过：铅笔求解器（R1–R7，不回溯）从空盘推到底，穷举计数器以 limitSolutions:2 证「恰好一个解」；规则是每块恰好一个记号、`+` 正方形 / `-` 宽>高 / `|` 高>宽、任何格点不得是四块的公共角。难度分与五档 band 都由 npm run balance 量出来，不是标签.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "dev": "node server.cjs 5316",
+    "electron": "electron .",
+    "test": "node tools/rule-test.mjs && node tools/counter-test.mjs && node tools/pencil-test.mjs",
+    "balance": "node tools/balance.mjs",
+    "check": "for f in js/*.js js/*/*.js; do if [ ! -f \"$f\" ]; then echo \"check: 未落地，跳过 $f\"; continue; fi; node --check \"$f\" || exit 1; done && node --check server.cjs && node --check electron/main.cjs && node --check electron/preload.cjs && for f in tools/*.mjs tools/*.js; do if [ ! -f \"$f\" ]; then echo \"check: 未落地，跳过 $f\"; continue; fi; node --check \"$f\" || exit 1; done && echo OK"
+  },
+  "keywords": [
+    "game",
+    "puzzle",
+    "tatamibari",
+    "nikoli",
+    "rectangles",
+    "logic",
+    "deduction",
+    "no-guess",
+    "procedural",
+    "web",
+    "electron"
+  ],
+  "author": "z-biz-game",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
