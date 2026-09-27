@@ -417,7 +417,9 @@ run_shape() {
 
 SHAPE_LIST="root prefix"
 [ "$CUSTOM" = 1 ] && SHAPE_LIST=custom
+RAN=""
 for shape in ${SHAPES:-$SHAPE_LIST}; do
+  RAN="$RAN $shape"
   run_shape "$shape" || FAILED=1
   # each shape gets its own servers; tear this one down before the next
   [ "$SPID" != 0 ] && kill $SPID 2>/dev/null
@@ -429,5 +431,6 @@ for shape in ${SHAPES:-$SHAPE_LIST}; do
 done
 
 kill $WD 2>/dev/null
-[ $FAILED -eq 0 ] && echo "=== ALL GREEN（两种 URL 形态的全部场景）===" || echo "=== FAILURES ABOVE ==="
+# 只报这一跑真的跑过的形态：SHAPES=root / BASE_URL= 那种单形态跑，旧文案照样打印"两种 URL 形态"。
+[ $FAILED -eq 0 ] && echo "=== ALL GREEN（这一跑实际覆盖的 URL 形态：${RAN# }）===" || echo "=== FAILURES ABOVE ==="
 exit $FAILED
