@@ -36,7 +36,7 @@
 // 一条边只由"右、下"两个方向记录（见 B 节 R6 那条断言），
 // 所以同一面墙不会一会儿叫"格 3 的右侧"、一会儿叫"格 4 的左侧"。
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   UNKNOWN, WALL, SAME, createSt, putEdge, runRule, step, solve, verdict,
   containment, wallPrefix, WINDOW_OK, windowAllowed, equalMask, windowConfigName,
@@ -203,10 +203,26 @@ function containBrute(w, h, cands) {
 // ================================================== A0) 引擎得能被浏览器 import
 console.log('== A0) js/engine/* 不得出现 node 专属入口；本闸不得读时间 ==');
 {
-  const files = ['rules.js', 'counter.js', 'pencil.js'];
+  // 名单从目录现读，绝不写死。旧写法是 `['rules.js','counter.js','pencil.js']`，而带反转边
+  // 的那一个（generate.js 在 816e61b 之前 import tools/reference.mjs）从来不在名单里——
+  // 本文件头部第 4 条承诺「A0 节拿文本扫 js/engine/*」，扫一个写死的三元组就是承诺了没做。
+  // 名单一变，这一节的覆盖面与条数一起变（3 个文件 → 现读到的每一个），所以条数要重钉。
+  const files = readdirSync(new URL('../js/engine/', import.meta.url))
+    .filter((f) => f.endsWith('.js'))
+    .sort();
+  ok(`A0 扫的是目录本身而不是名单（现读到 ${files.length} 个 .js）`,
+    files.length >= 6 && ['generate.js', 'pencil.js', 'counter.js', 'rules.js'].every((f) => files.includes(f)),
+    files.join(','));
+  // 扫的是**代码**：注释里写「没有 Math.random()」是在陈述承诺，不是在违反它。
+  // generate.js:29 那句话就是这种散文——不剥注释的话，红的是文档而不是缺陷。
+  // 与本文件给自己定的那条同一口径（下面 :237-238 那一段筛掉的正是注释行）。
+  const codeOf = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l))
+    .join('\n');
   const hits = [];
   for (const f of files) {
-    const src = readFileSync(new URL(`../js/engine/${f}`, import.meta.url), 'utf8');
+    const src = codeOf(readFileSync(new URL(`../js/engine/${f}`, import.meta.url), 'utf8'));
     for (const re of [/require\s*\(/, /\bnode:/, /\bprocess\./, /\b__dirname\b/, /\bglobal\.Buffer\b/]) {
       const m = src.match(re);
       if (m) hits.push(`${f}: 出现 node 专属入口 ${re.source} → "${m[0]}"`);
@@ -223,9 +239,9 @@ console.log('== A0) js/engine/* 不得出现 node 专属入口；本闸不得读
   eq('本闸正文（注释除外）里 performance.now / Date.now / Math.random 的命中数',
     (code.match(/performance\.now\s*\(|Date\.now\s*\(|Math\.random\s*\(/g) || []).length, 0);
   for (const f of files) {
-    const src = readFileSync(new URL(`../js/engine/${f}`, import.meta.url), 'utf8');
+    const src = codeOf(readFileSync(new URL(`../js/engine/${f}`, import.meta.url), 'utf8'));
     for (const re of [/Date\.now\s*\(/, /Math\.random\s*\(/, /new Date\s*\(/]) {
-      ok(`${f} 里没有 ${re.source}`, !re.test(src));
+      ok(`${f} 的代码（注释除外）里没有 ${re.source}`, !re.test(src));
     }
   }
 }
