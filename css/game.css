@@ -61,6 +61,14 @@
     --hint: #a97400;
     --mark: #3c4f9c;
   }
+
+  /* 亮底要用另一张：暗色那张是" ink 提亮"画在深面上铺出来的，压在白底上等于没有。 */
+  .rule-card,
+  #board-frame,
+  #win-card,
+  .veil-card {
+    background-image: url("../assets/textures/tatami-weave-light.png");
+  }
 }
 
 /* ============================================================
@@ -175,7 +183,12 @@ kbd {
 #shell {
   max-width: 940px;
   margin: 0 auto;
-  padding: var(--pad) var(--pad) calc(var(--pad) + 18px);
+  /* 刘海/状态栏不是审美问题：viewport-fit=cover 之后不给这一条，标题就压进圆角里。
+     env() 读不到（桌面浏览器）时整条回落到 var(--pad)，不会算出 NaN。 */
+  padding: calc(var(--pad) + env(safe-area-inset-top, 0px))
+    calc(var(--pad) + env(safe-area-inset-right, 0px))
+    calc(var(--pad) + 18px + env(safe-area-inset-bottom, 0px))
+    calc(var(--pad) + env(safe-area-inset-left, 0px));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -183,10 +196,59 @@ kbd {
 
 #topbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.topbar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* 顶栏那三枚是**手指目标**，不是装饰：44×44 是命中区，图标本身只有 24。
+   只写 img{width:24} 而容器 28×28 的写法在这仓里算没做——见 tools/scenarios.js 的量按钮那条。 */
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.icon-btn img {
+  width: 24px;
+  height: 24px;
+  display: block;
+  /* 图标是单色墨水 PNG，跟着主题翻面；反相的是"像素图"而不是颜色，所以不许加滤镜撞色 */
+  image-rendering: auto;
+}
+
+.icon-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--surface-lift);
+  box-shadow: inset 0 0 0 1px var(--accent-edge);
+}
+
+.help-mark {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  line-height: 1;
 }
 
 #topbar h1 {
@@ -217,7 +279,12 @@ kbd {
 }
 
 .rule-card {
-  background: var(--surface);
+  /* 这张纹理不是贴纸：assets/gen/make_art.py 用母题（一张真 4×4 解盘的榻榻米编织）
+     生成的 128×128 无缝平铺，最高 alpha 只有 18/255，所以压在 --surface 上只看得见织纹、
+     不抢字。接缝由生成脚本自己用 ImageStat 量过（<=3 灰阶）。 */
+  background:
+    url("../assets/textures/tatami-weave.png") left top / 128px 128px repeat,
+    var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 15px 17px;
@@ -470,12 +537,25 @@ label,
   display: flex;
   /* 容器给不出画布要的宽时，宁可这条框自己滚，也不许压画布 —— 见下面 #board 那一条。 */
   justify-content: flex-start;
-  background: var(--surface);
+  background:
+    url("../assets/textures/tatami-weave.png") left top / 128px 128px repeat,
+    var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 8px;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* 墨点粒子住的叠加画布：**位置与尺寸由 js/main.js 的 layout() 按 #board 摆**（跟画布同一套
+   CSS 像素与 dpr）。pointer-events:none 是必需的——它盖在盘上，吃掉命中的话玩家一条边都点不着。
+   浏览器闸取的是 #board 的精确色，这一层的加法混合只在盘之外，不污染那批读数。 */
+#fx-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 #board {
@@ -543,9 +623,23 @@ label,
   }
 }
 
+/* 减少动效是**分支**，不是"放慢一点"：这条媒体查询把动画与过渡全部压掉，
+   而 js/render/fx.js 那边由 js/main.js::prefersReducedMotion() 同步关掉虚线行进、
+   墨点喷发与光带呼吸（`pulse.t` 钉在峰值）。只做 CSS 而留着 JS 照动，就是注水。 */
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 转圈停了也得看得出"在出题"：留一格缺口，而不是画一个均匀的圆。 */
   .spinner {
-    animation-duration: 2.4s;
+    animation: none;
+    border-right-color: transparent;
   }
 }
 
@@ -652,6 +746,100 @@ label,
   font-size: 12px;
 }
 
+/* 暂停遮罩住在 #board-frame **里面**（absolute）：盘盖住了，HUD 与工具条还露在外面，
+   玩家能直接按"继续"或回选档，不必先穿过一层全屏蒙版。z-index 4 压过 #busy 的 3。 */
+#pause-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(2px);
+  border-radius: calc(var(--r) - 2px);
+  z-index: 4;
+}
+
+.veil-card {
+  width: min(360px, 100%);
+  background:
+    url("../assets/textures/tatami-weave.png") left top / 128px 128px repeat,
+    var(--surface);
+  border: 1px solid var(--line-heavy);
+  border-radius: var(--r);
+  padding: 15px 16px;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.veil-card h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.veil-card p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+/* 玩法说明：整屏、能滚、Esc 关。z-index 21 压过胜利遮罩（? 在结算界面也要打得开）。 */
+#help-veil {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--pad) + env(safe-area-inset-top, 0px))
+    calc(var(--pad) + env(safe-area-inset-right, 0px))
+    calc(var(--pad) + 12px + env(safe-area-inset-bottom, 0px))
+    calc(var(--pad) + env(safe-area-inset-left, 0px));
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  z-index: 21;
+  overflow-y: auto;
+}
+
+.help-card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  gap: 12px;
+}
+
+.help-card h2 {
+  font-size: 17px;
+}
+
+.help-card h3 {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+
+.help-list,
+.help-keys {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+.help-list b {
+  color: var(--ink);
+}
+
+.help-keys {
+  list-style: none;
+  padding: 0;
+}
+
+.help-note {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
 select {
   min-height: 44px;
   padding: 8px 12px;
@@ -674,6 +862,7 @@ select {
   flex-wrap: wrap;
   border-top: 1px solid var(--line);
   padding-top: 14px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   color: var(--ink-faint);
   font-size: 12px;
 }

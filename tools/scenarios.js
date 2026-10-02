@@ -734,9 +734,27 @@ const FIXTURE = [
     eq('擦掉工具点已有墙：回到未定', g.valueAt(sc[0].i, sc[0].dir), G.UNKNOWN);
     eq('擦掉也算落笔（正好多一步）', S().moves, movesBeforeErase + 1);
     const movesAfterErase = S().moves;
+    keyd('t');
+    await wait(10);
+    // 键位表：1/2/3 选工具、T 轮换、M 静音（M 让给静音是这一轮定的，见 js/main.js 那条注释）。
+    eq("键盘 't' 循环到画墙", S().mode, G.WALL);
+    const mutedBefore = A().sound.muted;
+    // 参照点必须先钉在"响"这一侧：+1 这类断言在"本来就静音"的起点上是反向的（读起来像失败，其实是尺子没对齐）。
+    if (mutedBefore) A().toggleSound(false);
+    const audBefore = A().sound.snapshot();
     keyd('m');
     await wait(10);
-    eq("键盘 'm' 循环到画墙", S().mode, G.WALL);
+    const audMuted = A().sound.snapshot();
+    eq("键盘 'm' 翻静音位", audMuted.muted, true);
+    // 真静音的读数：context 被 suspend() 挂起了一次（只把 gain 压 0 的假静音这里永远是 0）。
+    eq("静音是把 AudioContext 真挂起（suspends +1）", audMuted.suspends, audBefore.suspends + 1);
+    eq("静音态 play() 返回 false", A().sound.play('wall'), false);
+    eq("静音态 play() 一个节点都不排（played 不涨）", A().sound.snapshot().played, audMuted.played);
+    keyd('m');
+    await wait(10);
+    const audBack = A().sound.snapshot();
+    eq("键盘 'm' 再按一次翻回来", audBack.muted, false);
+    eq("解除静音走的是 resume()（resumes +1）", audBack.resumes, audMuted.resumes + 1);
 
     // 6) 盘外不写、无解处不写
     const cr = canvasRect();

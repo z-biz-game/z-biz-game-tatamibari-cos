@@ -130,7 +130,7 @@ export class BoardView {
     return null;
   }
 
-  draw(game, { pulse = null, preview = null } = {}) {
+  draw(game, { pulse = null, preview = null, fx = null } = {}) {
     const P = this.palette;
     const { ctx, geo } = this;
     const { cell, gw } = geo;
@@ -138,6 +138,8 @@ export class BoardView {
     const won = game.status === 'won';
     const total = game.markers.length;
     const { lab, markerOf } = game;
+    const band = (fx && fx.pulse) || pulse;
+    const dashPhase = fx ? fx.dashPhase : 0;
 
     ctx.clearRect(0, 0, geo.w, geo.h);
     round(ctx, 0, 0, geo.w, geo.h, 14);
@@ -159,15 +161,18 @@ export class BoardView {
     }
 
     // 细线：未定是虚线、墙是实线；"同块"什么都不画，所以合并起来的地方自然连成一片。
+    // 虚线的相位来自 fx.dashPhase：那是按秒累加的量（`phase += 26 * dt`），不是"每帧挪 1px"。
     ctx.lineWidth = 1;
     for (const e of game.edges) {
       const v = game.valueAt(e.i, e.dir);
       if (v === SAME) continue;
       ctx.strokeStyle = v === WALL ? P.line : P.unknown;
       ctx.setLineDash(v === UNKNOWN ? [Math.max(3, cell * 0.12), Math.max(3, cell * 0.14)] : []);
+      ctx.lineDashOffset = v === UNKNOWN ? -dashPhase : 0;
       this.strokeSegment(e.i, e.dir);
     }
     ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
 
     // 玩家画的墙盖在细线之上：粗、圆头，赢了变绿。
     ctx.lineCap = 'round';
@@ -205,22 +210,26 @@ export class BoardView {
     }
 
     // 提示/矛盾刚点名的那一条边——UI 唯一被允许说"看这里"的地方。
-    if (pulse && pulse.i != null && pulse.dir != null && this.neighbour(pulse.i, pulse.dir) >= 0) {
-      ctx.strokeStyle = pulse.color || P.hint;
+    if (band && band.i != null && band.dir != null && this.neighbour(band.i, band.dir) >= 0) {
+      const env = fx && fx.pulseEnvelope ? fx.pulseEnvelope() : 1;
+      ctx.strokeStyle = band.color || P.hint;
       ctx.lineCap = 'round';
       // 先描两格的框，**最后**描那条光带。两格框与光带是同一个颜色，旧顺序是"光带→框→框"，
       // 于是光带正中那一行/列被两次**半覆盖**的同色描边盖过：Skia 按线性空间混合再折回 8 位，
       // 每一下都掉一个量化位（实测 y=168 那行整行读成 #a87400，而 163~167、169~171 是 #a97400；
       // 竖边在 x=168 那列同理读成 #a97300）。把光带挪到最后一次描边，它自己中心线上的那些像素
       // 就是 100% 覆盖 → 读回来逐位等于 --hint，"这条边被 --hint 光带画住"那句话才真是可测的。
+      // 呼吸只给两格框：光带本体永远是纯色，一调 alpha 上面那条实测就作废。
+      ctx.globalAlpha = 0.45 + 0.55 * env;
       ctx.lineWidth = Math.max(2, cell * 0.06);
-      for (const j of [pulse.i, this.neighbour(pulse.i, pulse.dir)]) {
+      for (const j of [band.i, this.neighbour(band.i, band.dir)]) {
         const r = this.cellXY(j);
         round(ctx, r.x + 2, r.y + 2, cell - 4, cell - 4, 6);
         ctx.stroke();
       }
+      ctx.globalAlpha = 1;
       ctx.lineWidth = Math.max(4, cell * 0.16);
-      this.strokeSegment(pulse.i, pulse.dir, true);
+      this.strokeSegment(band.i, band.dir, true);
       ctx.lineCap = 'butt';
     }
   }

@@ -59,14 +59,16 @@ export function unrle(s, n) {
 // ---------------------------------------------------------------- 环境
 
 // 隐私模式、满配额、Electron 里 file:// 的 storage 权限——都只让存档失效，不让游戏失效。
+// 探针必须**读回来核对**：只写不读的话，Safari 私密模式那种"setItem 不抛、但下次读还是空"
+// 的存储会被当成能用，于是每一次落笔都静默丢档。
 function backend() {
   try {
-    const ls = globalThis.localStorage;
-    if (!ls) return null;
+    if (typeof localStorage === 'undefined' || !localStorage) return null;
     const probe = '__tatamibari_probe__';
-    ls.setItem(probe, '1');
-    ls.removeItem(probe);
-    return ls;
+    localStorage.setItem(probe, '1');
+    const ok = localStorage.getItem(probe) === '1';
+    localStorage.removeItem(probe);
+    return ok ? localStorage : null;
   } catch {
     return null;
   }
@@ -77,11 +79,11 @@ const isInt = (x, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isInteger(x)
 const isStr = (x, max = 200) => typeof x === 'string' && x.length > 0 && x.length <= max;
 const num = (x, fallback = 0) => (typeof x === 'number' && Number.isFinite(x) ? x : fallback);
 
-const EMPTY = { v: V, resume: null, best: {}, totals: { played: 0, won: 0, hints: 0 } };
+const EMPTY = { v: V, resume: null, best: {}, totals: { played: 0, won: 0, hints: 0 }, settings: { muted: false } };
 
 /** 深拷贝并逐字段体检；不合规的那一条直接变成"没有"。 */
 function sanitize(raw) {
-  const out = { v: V, resume: null, best: {}, totals: { ...EMPTY.totals } };
+  const out = { v: V, resume: null, best: {}, totals: { ...EMPTY.totals }, settings: { ...EMPTY.settings } };
   if (!isObj(raw) || raw.v !== V) return out;
 
   const r = raw.resume;
@@ -129,6 +131,8 @@ function sanitize(raw) {
   if (isObj(t)) {
     for (const k of Object.keys(EMPTY.totals)) out.totals[k] = isInt(t[k]) ? t[k] : 0;
   }
+  // 只有显式的 true 才算静音：把 "1"、1、null 都读成"响"，比反过来安全（没人会因为脏数据被静音）。
+  if (isObj(raw.settings)) out.settings.muted = raw.settings.muted === true;
   return out;
 }
 
@@ -163,6 +167,18 @@ export class Store {
 
   get resume() {
     return this.data.resume;
+  }
+
+  get muted() {
+    return this.data.settings.muted === true;
+  }
+
+  /** 静音开关落盘。值没变就不写——不然每一次点按都刷一遍 localStorage。 */
+  setMuted(on) {
+    const next = on === true;
+    if (this.data.settings.muted === next) return false;
+    this.data.settings.muted = next;
+    return this.flush();
   }
 
   get totals() {

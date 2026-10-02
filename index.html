@@ -6,15 +6,42 @@
 <meta name="theme-color" content="#0b1017" />
 <title>畳バリ · Tatamibari 长方形切块推理</title>
 <meta name="description" content="畳バリ（Tatamibari）：用墙把 N×M 棋盘切成若干长方形块，每块恰好一个记号——「-」要宽大于高、「|」要高于宽、「+」要正方形，且任何一个格点上不许四块共角。引擎当前出货的只有 4×4 到 6×6 五档：每盘由穷举计数器证明恰好一个解，也每盘都能用 R1–R7 七条铅笔规则从空盘推到底；难度分是 tools/balance.mjs 量出来的（npm run balance），提示只念推得出的那一步。" />
-<!-- 内联图标：不写这一条，浏览器会去 Pages 域名根上探 /favicon.ico 并留一个 404。 -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1017'/%3E%3Crect x='5' y='5' width='22' height='22' rx='2' fill='none' stroke='%23e8eef7' stroke-width='2'/%3E%3Cpath d='M16 5 V27 M5 16 H16' stroke='%232b8f89' stroke-width='2.2' fill='none'/%3E%3Cpath d='M9 11 H13' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M19 9 H23 M21 7 V11' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M21 19 V23' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
+<!-- 图标是 assets/gen/make_art.py 现算出来的真位图（母题=一张真 4×4 解盘）。
+     原先这里是一条内联 SVG data-URI：它只省了一次 /favicon.ico 的 404，
+     既装不上桌面/iOS 主屏，也过不了"≥180px 真 PNG"这条判据。 -->
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="畳バリ · Tatamibari 长方形切块推理" />
+<meta property="og:description" content="用墙把棋盘切成若干长方形块，每块恰好一个记号。每盘唯一解、每盘都能用铅笔规则从空盘推到底。" />
+<meta property="og:image" content="assets/og-cover.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="assets/og-cover.png" />
 <link rel="stylesheet" href="css/game.css" />
 </head>
 <body>
 <div id="shell">
   <header id="topbar">
-    <h1><span class="ja">畳バリ</span> · Tatamibari</h1>
-    <p class="meta">长方形切块 · 每块一个记号 · 零猜测</p>
+    <div class="topbar-main">
+      <h1><span class="ja">畳バリ</span> · Tatamibari</h1>
+      <p class="meta">长方形切块 · 每块一个记号 · 零猜测</p>
+    </div>
+    <div class="topbar-actions" role="group" aria-label="全局开关">
+      <button id="btn-sound" class="icon-btn" type="button" aria-label="静音开关" aria-pressed="false"
+              title="静音 / 解除静音（M）">
+        <img src="assets/ui/sound-on.png" alt="" width="24" height="24" />
+      </button>
+      <button id="btn-fullscreen" class="icon-btn" type="button" aria-label="全屏" aria-pressed="false"
+              title="全屏 / 退出全屏（F）">
+        <img src="assets/ui/fullscreen.png" alt="" width="24" height="24" />
+      </button>
+      <button id="btn-help" class="icon-btn" type="button" aria-label="玩法说明" aria-pressed="false"
+              title="玩法与快捷键（?）">
+        <span class="help-mark" aria-hidden="true">?</span>
+      </button>
+    </div>
   </header>
 
   <main>
@@ -100,7 +127,21 @@
 
       <div id="board-frame">
         <canvas id="board" role="img" aria-label="畳バリ棋盘：点或拖一条格子的边界来画墙，切到打通工具表示这两格同块"></canvas>
+        <!-- 墨点粒子住在这一张叠加画布上，不画进 #board：浏览器闸按**精确色**取盘上的点
+             （格心逐位等于 --surface、光带中心线逐位等于 --hint），一层加法混合会把读数带歪。
+             位置与尺寸由 js/main.js 的 layout() 按 #board 的 offsetLeft/offsetTop 摆。 -->
+        <canvas id="fx-layer" aria-hidden="true"></canvas>
         <span id="board-preview" hidden></span>
+        <div id="pause-veil" hidden>
+          <div class="veil-card">
+            <h2>这一盘暂停中</h2>
+            <p>计时与动效都停着：虚拟时长不走，撤销、提示、落笔都先按住。</p>
+            <div class="win-actions">
+              <button id="btn-resume-play" type="button">继续（空格）</button>
+              <button id="btn-pause-menu" type="button">回选档</button>
+            </div>
+          </div>
+        </div>
         <div id="busy" hidden>
           <div class="busy-inner">
             <div class="spinner" aria-hidden="true"></div>
@@ -137,6 +178,9 @@
         </div>
         <span class="spacer"></span>
         <div class="tool-group" role="group" aria-label="这盘">
+          <button id="btn-pause" class="tool-btn" type="button" aria-pressed="false" title="暂停 / 继续（空格或 P）">
+            <img src="assets/ui/pause.png" alt="" width="18" height="18" /><span id="pause-label">暂停</span>
+          </button>
           <button id="btn-new" class="tool-btn" type="button">换一局</button>
           <button id="btn-menu" class="tool-btn" type="button">回选档</button>
         </div>
@@ -146,7 +190,8 @@
 
       <p class="legend">
         <b>点一下</b> 一条边界 · <b>按住拖</b> 一笔连画 · <b>从自己已画的线上起笔</b> 就是擦掉 ·
-        <b>1</b> <b>2</b> <b>3</b> 选工具 · <b>H</b> 提示 · <b>G</b> 补一眼墙 · <b>Z</b> 撤销 · <b>N</b> 换一局
+        <b>1</b> <b>2</b> <b>3</b> 选工具（<b>T</b> 轮换）· <b>H</b> 提示 · <b>G</b> 补一眼墙 · <b>Z</b> 撤销 ·
+        <b>N</b> 换一局 · <b>R</b> 重开本盘 · <b>空格</b>/<b>P</b> 暂停 · <b>M</b> 静音 · <b>F</b> 全屏 · <b>?</b> 玩法
       </p>
       <p class="legend">
         提示走的是出题时那条铅笔序列（<code>pencil.solve()</code> 在空盘上跑出来的推导，R1–R7 每一步都在<b>所有</b>合法分块上成立）：
@@ -165,6 +210,37 @@
     </span>
     <button id="btn-reset" class="danger" type="button">清空本地存档</button>
   </footer>
+
+  <!-- 玩法说明：? 或顶栏那枚 ? 打开。判据不在这里另立一套，每条都指回 js/engine 里那份唯一实现。 -->
+  <div id="help-veil" hidden>
+    <div class="veil-card help-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <h2 id="help-title">玩法：三分钟说得完</h2>
+      <ol class="help-list">
+        <li>棋盘上有三种记号：<b>-</b> 说它所在的块<b>宽 &gt; 高</b>，<b>|</b> 说<b>高 &gt; 宽</b>，<b>+</b> 说它是<b>正方形</b>。</li>
+        <li>你画的是<b>墙</b>：把棋盘切成若干长方形块，<b>每块恰好一个记号</b>——多一个、少一个都算错。</li>
+        <li>「打通」工具说这两格<b>同一块</b>：墙与打通不能同时压在一条边上。</li>
+        <li>任何一个格点上<b>不许四块共角</b>（十字路口不能凑齐四家）。</li>
+        <li>不用猜：每盘都能只靠线索从空盘推到底。判据的<em>唯一</em>出处是
+          <code>js/engine/validate.js::invalidReason</code>，提示念的是 <code>js/engine/pencil.js::solve()</code>
+          在空盘上跑出来的那条序列。</li>
+      </ol>
+      <h3>怎么落笔</h3>
+      <p class="help-note"><b>点一下</b> 一条边界（工具是什么就写什么，点自己已画的线就是擦）·
+        <b>按住拖</b> 一笔连画同一条线 · 手指落在格子里时<b>离哪条边界近就指哪条</b>，
+        所以每条内部边的可点区域是一整格，不是几像素的细线。</p>
+      <h3>快捷键</h3>
+      <ul class="help-keys">
+        <li><kbd>Enter</kbd> / <kbd>空格</kbd> 选档页开这一盘 · 对局页暂停/继续</li>
+        <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 画墙/打通/擦掉 · <kbd>T</kbd> 轮换工具</li>
+        <li><kbd>H</kbd> 提示 · <kbd>G</kbd> 补一眼墙（免费）· <kbd>Z</kbd> 撤销</li>
+        <li><kbd>N</kbd> 换一局 · <kbd>R</kbd> 重开本盘（清掉这一盘的墨，seed 与档不变）</li>
+        <li><kbd>P</kbd> 暂停 · <kbd>M</kbd> 静音 · <kbd>F</kbd> 全屏 · <kbd>?</kbd> 这一页 · <kbd>Esc</kbd> 回选档</li>
+      </ul>
+      <div class="win-actions">
+        <button id="btn-help-close" type="button">开始这一盘</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="js/main.js"></script>
