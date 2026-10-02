@@ -1,0 +1,228 @@
+{
+ "repo": "z-biz-game-tatamibari-cos",
+ "motif": "tatami-4x4-solution",
+ "palette": {
+  "bg": "#0b1017",
+  "bg_2": "#111925",
+  "surface": "#17202c",
+  "surface_lift": "#1e2a39",
+  "line": "#2b3a4d",
+  "line_heavy": "#46607c",
+  "ink": "#e8eef7",
+  "ink_dim": "#a6b6ca",
+  "ink_faint": "#6d8299",
+  "accent": "#5ad1c8",
+  "accent_edge": "#2b8f89",
+  "success": "#57d98a",
+  "hint": "#f5c451",
+  "mark": "#c3d0ff"
+ },
+ "partition": {
+  "cells": [
+   0,
+   0,
+   1,
+   1,
+   0,
+   0,
+   1,
+   1,
+   2,
+   3,
+   3,
+   4,
+   2,
+   5,
+   5,
+   4
+  ],
+  "boxes": [
+   {
+    "r0": 0,
+    "c0": 0,
+    "r1": 1,
+    "c1": 1,
+    "shape": "s",
+    "marker": "+"
+   },
+   {
+    "r0": 0,
+    "c0": 2,
+    "r1": 1,
+    "c1": 3,
+    "shape": "s",
+    "marker": "+"
+   },
+   {
+    "r0": 2,
+    "c0": 0,
+    "r1": 3,
+    "c1": 0,
+    "shape": "v",
+    "marker": "|"
+   },
+   {
+    "r0": 2,
+    "c0": 1,
+    "r1": 2,
+    "c1": 2,
+    "shape": "h",
+    "marker": "-"
+   },
+   {
+    "r0": 2,
+    "c0": 3,
+    "r1": 3,
+    "c1": 3,
+    "shape": "v",
+    "marker": "|"
+   },
+   {
+    "r0": 3,
+    "c0": 1,
+    "r1": 3,
+    "c1": 2,
+    "shape": "h",
+    "marker": "-"
+   }
+  ],
+  "verified": [
+   "每块长方形",
+   "每块恰好一个记号",
+   "记号与形状一致",
+   "无四块共角",
+   "三种形状齐全"
+  ]
+ },
+ "fonts": {
+  "font_title": "STHeiti Medium.ttc",
+  "font_sub": "STHeiti Medium.ttc"
+ },
+ "files": {
+  "icons/icon-1024.png": {
+   "w": 1024,
+   "h": 1024,
+   "bytes": 40562
+  },
+  "icons/icon-512.png": {
+   "w": 512,
+   "h": 512,
+   "bytes": 39306
+  },
+  "icons/icon-192.png": {
+   "w": 192,
+   "h": 192,
+   "bytes": 15522
+  },
+  "icons/icon-180.png": {
+   "w": 180,
+   "h": 180,
+   "bytes": 22529
+  },
+  "icons/icon-96.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 7788
+  },
+  "icons/icon-64.png": {
+   "w": 64,
+   "h": 64,
+   "bytes": 3659
+  },
+  "icons/icon-48.png": {
+   "w": 48,
+   "h": 48,
+   "bytes": 2609
+  },
+  "icons/icon-32.png": {
+   "w": 32,
+   "h": 32,
+   "bytes": 1546
+  },
+  "icons/icon-16.png": {
+   "w": 16,
+   "h": 16,
+   "bytes": 775
+  },
+  "icons/icon-maskable-512.png": {
+   "w": 512,
+   "h": 512,
+   "bytes": 116209
+  },
+  "icons/icon-maskable-192.png": {
+   "w": 192,
+   "h": 192,
+   "bytes": 22178
+  },
+  "icons/apple-touch-icon.png": {
+   "w": 180,
+   "h": 180,
+   "bytes": 22529
+  },
+  "icons/favicon-32.png": {
+   "w": 32,
+   "h": 32,
+   "bytes": 1546
+  },
+  "icons/favicon-16.png": {
+   "w": 16,
+   "h": 16,
+   "bytes": 775
+  },
+  "assets/og-cover.png": {
+   "w": 1200,
+   "h": 630,
+   "bytes": 81656
+  },
+  "assets/textures/tatami-weave.png": {
+   "w": 128,
+   "h": 128,
+   "bytes": 621
+  },
+  "assets/textures/tatami-weave-light.png": {
+   "w": 128,
+   "h": 128,
+   "bytes": 586
+  },
+  "assets/sprites/dust-burst.png": {
+   "w": 64,
+   "h": 64,
+   "bytes": 1491
+  },
+  "assets/ui/sound-on.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 289
+  },
+  "assets/ui/sound-off.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 487
+  },
+  "assets/ui/pause.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 198
+  },
+  "assets/ui/resume.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 386
+  },
+  "assets/ui/restart.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 452
+  },
+  "assets/ui/fullscreen.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 262
+  },
+  "assets/ui/motion.png": {
+   "w": 96,
+   "h": 96,
+   "bytes": 274
+  }
+ }
+}
