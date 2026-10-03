@@ -9,6 +9,11 @@
 <!-- 内联图标：不写这一条，浏览器会去 Pages 域名根上探 /favicon.ico 并留一个 404。 -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1017'/%3E%3Crect x='5' y='5' width='22' height='22' rx='2' fill='none' stroke='%23e8eef7' stroke-width='2'/%3E%3Cpath d='M16 5 V27 M5 16 H16' stroke='%232b8f89' stroke-width='2.2' fill='none'/%3E%3Cpath d='M9 11 H13' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M19 9 H23 M21 7 V11' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M21 19 V23' stroke='%23c3d0ff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="css/game.css" />
+
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
 <div id="shell">
@@ -168,5 +173,6 @@
 </div>
 
 <script type="module" src="js/main.js"></script>
+  <script src="js/sw-register.js"></script>
 </body>
 </html>
