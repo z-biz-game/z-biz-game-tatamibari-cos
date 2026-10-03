@@ -151,7 +151,7 @@ export class Store {
     const ls = backend();
     let raw = null;
     try {
-      const text = ls && ls.getItem(SAVE_KEY);
+      const text = ls && globalThis.localStorage.getItem(SAVE_KEY);
       raw = text ? JSON.parse(text) : null;
     } catch {
       raw = null; // 截断的 JSON、被人改成 "undefined" 的键，都只到这里为止
@@ -231,7 +231,7 @@ export class Store {
 
   flush() {
     try {
-      if (this.ls) this.ls.setItem(SAVE_KEY, JSON.stringify(this.data));
+      if (this.ls) globalThis.localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
       return true;
     } catch {
       return false; // 配额满：这次写不进去，内存里的仍然能用
