@@ -90,6 +90,32 @@ const fmtTime = (ms) => {
 
 const clock = () => (startedAt ? baseMs + (Date.now() - startedAt) : baseMs);
 
+// ── 暂停 ────────────────────────────────────────────────────────────────
+// 暂停是**真冻结时钟**，不是挂个标签：暂停那一瞬把还在跑的那一段折进 baseMs，
+// 再把 startedAt 清零 —— clock() 于是恒等于 baseMs，一毫秒都不再涨。
+// 恢复时重新盖上 startedAt，时钟从冻结处续走；因为 baseMs 已经是累计值，
+// 恢复后第一帧的 dt 就是一个正常帧间隔，不会把暂停那几秒一次性吃掉（不跳步）。
+let paused = false;
+function setPaused(next) {
+  next = !!next;
+  if (paused === next) return paused;
+  if (next) {
+    baseMs = clock();     // 先结算到此刻，再停表
+    startedAt = 0;
+  } else {
+    startedAt = Date.now();
+  }
+  paused = next;
+  paintPause();
+  return paused;
+}
+function paintPause() {
+  const btn = document.getElementById('btn-pause');
+  if (!btn) return;
+  btn.textContent = paused ? '继续' : '暂停';
+  btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+}
+
 /** 日课 key：本地日期的 ISO 形。"今天"就是玩家所在的那个今天，所以不套 UTC。 */
 function dateKey(d = new Date()) {
   const y = d.getFullYear();
@@ -278,6 +304,8 @@ function adopt(next, { daily = false, seedUsed = null, resumeFrom = null } = {})
   game.seedUsed = resumeFrom ? resumeFrom.seed : (seedUsed || next.puzzle.seed);
   baseMs = resumeFrom ? resumeFrom.elapsedMs || 0 : 0;
   startedAt = Date.now();
+  // 换一局＝新的一局，新局一定在走：带着上一局的 paused=true 进来会让时钟和按钮各说各话
+  if (paused) { paused = false; paintPause(); }
   if (resumeFrom && !game.load(resumeFrom.ink)) {
     store.clearResume();
     game = null;
@@ -664,6 +692,10 @@ window.addEventListener('keydown', (ev) => {
   else if (k === 'h') useHint();
   else if (k === 'g') prune();
   else if (k === 'z') undo();
+  else if (k === 'p' || k === 'P' || k === ' ' || ev.code === 'Space') {
+    ev.preventDefault();
+    setPaused(!paused);
+  }
   else if (k === 'n' && game && view.name === 'game') again();
   else return;
   ev.preventDefault();
@@ -744,6 +776,12 @@ window.tatamibari = {
     return step;
   },
   elapsed: clock,
+  get paused() {
+    return paused;
+  },
+  setPaused,
+  /** 正在推进的那个数（毫秒）。暂停时它必须一毫秒不动 —— 这就是"真冻结"的判据。 */
+  simClock: () => clock(),
   dateKey,
   state: () => (game ? { ...game.state(), elapsedMs: clock(), view: view.name, daily: !!game.daily } : null),
   hitAt: (x, y) => (board ? board.hitEdge(x, y) : null),
@@ -762,6 +800,13 @@ window.tatamibari = {
   engine: { TIERS, UNSHIPPABLE, makePuzzle, Game, Store, SAVE_KEY },
 };
 
+// ---- 暂停按钮（#btn-pause，与 P / Space 同一个入口）----
+(function bindPause() {
+  const btn = document.getElementById('btn-pause');
+  if (!btn) return;   // HUD 里没有这个 id 就不装，别让量具算出"已实现"的假绿
+  btn.addEventListener('click', () => setPaused(!paused));
+})();
+
 // ---- 全屏开关（#btn-fullscreen）----
 // 绑的是本页 HUD 上真实存在的那个按钮。全屏最常见的假实现就是引用一个并不存在的
 // id：点下去什么也不会发生，量具却算它"已实现"。所以这里找不到按钮就直接不装。
@@ -777,7 +822,11 @@ window.tatamibari = {
     || document.msFullscreenElement || null;
 
   // 不支持也要给个说法：只把按钮灰掉而不解释，玩家会以为这功能没做完。
+  // supported 这枚标记不能省：下面 sync() 每次都会重写 title，不挡住的话，装的时候刚写
+  // 进去的人话原因会被随后的 sync() 立刻抹成"全屏 (F)"——禁用就变成一句没有理由的禁用。
+  let supported = !!req;
   const unsupported = () => {
+    supported = false;
     btn.disabled = true;
     btn.title = '这个浏览器不提供元素全屏（iOS Safari 请用「添加到主屏幕」独立打开）';
   };
@@ -808,7 +857,7 @@ window.tatamibari = {
     const on = !!current();
     btn.setAttribute('aria-pressed', String(on));
     btn.textContent = on ? "退出全屏" : "全屏";
-    btn.title = "全屏" + '（F）';
+    if (supported) btn.title = "全屏" + '（F）';
     const body = document.body;
     if (body && body.classList) body.classList.toggle('fullscreen', on);
   }
