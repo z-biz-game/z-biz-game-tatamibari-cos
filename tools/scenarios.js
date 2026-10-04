@@ -1321,6 +1321,251 @@ const FIXTURE = [
     return report({ cell: gg.cell, canvas: `${gg.w}×${gg.h}`, frame: Math.round(fb.width), viewport: `${window.innerWidth}×${window.innerHeight}` });
   };
 
-  w.__scn = { first, play, undo: undoScn, hint, clash, win, save, resume, layout, narrow };
+  // ================================================================ pause：暂停冻住的两样，与顶栏那两颗手动控件
+  //
+  // 前九场没有一次真的点过 #btn-pause / #btn-fullscreen：「暂停」到底冻住了什么、全屏按钮的
+  // aria-pressed 会不会跟着状态回写，全靠读代码。这一场把它们量成可复算的数字。
+  //
+  // 暂停要冻**两样**：读数（js/main.js 的 setPaused 把 baseMs 结算后把 startedAt 清零，clock()
+  // 从此恒等于 baseMs）与盘面（js/main.js 的 blockedWhilePaused）。只冻读数不冻盘面，榜是按 ms
+  // 排名的（js/store.js:140 `return a.ms < b.ms;`），暂停于是变成免费的思考时间。
+  const pause = async () => {
+    await wipe();
+    const a = A();
+    if (typeof a.setPaused !== 'function' || typeof a.simClock !== 'function' || typeof a.elapsed !== 'function') {
+      ck('暂停：window.tatamibari 交出 setPaused / elapsed / simClock 这张给闸台读的脸', false,
+        `只有 ${Object.keys(a).slice(0, 12).join(',')}`);
+      return report({ fatal: 'no surface' });
+    }
+    const errs0 = PROBE.js.length;
+    const lab = (id) => {
+      const b = document.getElementById(id) || {};
+      return {
+        text: (b.textContent || '').trim(),
+        pressed: b.getAttribute && b.getAttribute('aria-pressed'),
+        title: b.getAttribute && b.getAttribute('title'),
+        disabled: b.disabled === true,
+      };
+    };
+    // 合成 KeyboardEvent 要 cancelable 才谈得上 defaultPrevented；本场的 keyd 助手（line 724 那个）
+    // 不带这个标志，这里单独造一颗，不动那个助手。
+    const kd = (key) => {
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+
+    eq('暂停：HUD 右上角那颗手动控件名册逐字对上（顺序、条数、id 全算）',
+      [...document.querySelectorAll('.hud-right button')].map((b) => b.id).join(','),
+      'btn-pause,btn-fullscreen');
+    eq('暂停：工具条三段按钮名册逐字对上',
+      [...document.querySelectorAll('.toolbar button')].map((b) => b.id).join(','),
+      'tool-wall,tool-same,tool-erase,btn-hint,btn-prune,btn-undo,btn-new,btn-menu');
+    eq('暂停：这些控件每一颗都写着名字（空 textContent 时读屏只剩一个 role）',
+      [...document.querySelectorAll('.hud-right button, .toolbar button')]
+        .filter((b) => !(b.textContent || '').trim()).length, 0);
+    const p0 = lab('btn-pause');
+    const f0 = lab('btn-fullscreen');
+    ck('暂停：开局没有一处偷偷停在暂停态（引擎、按钮文字、aria-pressed 三处一起说没暂停）',
+      a.paused === false && p0.text === '暂停' && p0.pressed === 'false', `${a.paused}/${p0.text}/${p0.pressed}`);
+    ck('暂停：暂停那颗键 title 写了两个键（P 与 Space），下面各自要验',
+      /P/.test(p0.title || '') && /Space/.test(p0.title || ''), p0.title);
+    ck('暂停：全屏按钮开局可点、写着「全屏」、title 说了键位 F',
+      !f0.disabled && f0.text === '全屏' && /F/.test(f0.title || ''), `${f0.text}/${f0.disabled}/${f0.title}`);
+
+    // ---- 全屏两条腿排在最前面：一次 Runtime.evaluate 只发一份瞬时用户激活（约几秒就过期），
+    // 第一下 requestFullscreen() 就把它吃掉。这一串如果排在任何 wait 之后，连"第一次进入"都会
+    // 被拒——那是 headless 的授权上限，不是产品缺陷（上一仓就是这么红的）。
+    const w0 = innerWidth;
+    const inFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    await clickBtn('#btn-fullscreen');
+    await wait(500);
+    let fs = 'unsupported';
+    if (inFs()) {
+      fs = 'entered';
+      const on = lab('btn-fullscreen');
+      ck('暂停：进全屏后按钮标成按下、文字改成「退出全屏」（回写走 fullscreenchange，不是点击那一行）',
+        on.pressed === 'true' && on.text === '退出全屏', `${on.text}/${on.pressed}`);
+      ck('暂停：body 的 fullscreen 类跟着进', document.body.classList.contains('fullscreen'),
+        [...document.body.classList].join(' '));
+      const f = await openUntil('scn|newbie|0');
+      const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+      ck('暂停：全屏没有撑出横向滚动', overflow <= 1, `溢出 ${overflow} px`);
+      const r = canvasRect();
+      ck('暂停：全屏里棋盘整个在视口内',
+        r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1,
+        `[${Math.round(r.left)},${Math.round(r.top)}] ${Math.round(r.width)}×${Math.round(r.height)} 视口 ${innerWidth}×${innerHeight}`);
+      ck('暂停：全屏里那盘仍是夹具那一盘（尺寸、seed 都没被换）', `${f.w}×${f.h}|${f.puzzle.seed}`, '4×4|scn|newbie|0');
+      const claimed = kd('f');
+      await wait(500);
+      ck('暂停：按 F 真的退出全屏（title 里那句（F）不是装饰）', !inFs(), '按 F 之后还在全屏里');
+      ck('暂停：F 的处理器确实认领了这颗键（defaultPrevented 为真）', claimed,
+        '合成 F 事件没被 js/main.js 的全屏 handler 消费');
+      const off = lab('btn-fullscreen');
+      eq('暂停：退出后按钮文字回到「全屏」', off.text, '全屏');
+      eq('暂停：退出后 aria-pressed 回假', off.pressed, 'false');
+      ck('暂停：退出后 body 的 fullscreen 类摘掉', !document.body.classList.contains('fullscreen'),
+        [...document.body.classList].join(' '));
+      ck('暂停：退出后视口宽度复原', innerWidth === w0, `${w0} → ${innerWidth}`);
+      ck('暂停：没绑的键不冒充玩家输入（对照组：q 不该被消费）', !kd('q'),
+        '一个没绑的键也被 preventDefault 了，上面那条"认领"就量不出绑定');
+      // 这份激活已经被第一次进入吃掉了，所以这一下**必然**被 Chrome 拒（NotAllowedError）。
+      // 要断的是：一次"没给许可"不许冒充"这台机器不行"。上一版把任何 rejection 都送去
+      // unsupported()，于是这颗按钮被永久禁掉、title 还谎称"这个浏览器不提供元素全屏"——
+      // 在真人那儿这等于一次抖动就把功能拆了。
+      await clickBtn('#btn-fullscreen');
+      await wait(450);
+      const againBtn = lab('btn-fullscreen');
+      ck('暂停：请求被拒之后按钮还在（不被谎报成"本浏览器不支持"）',
+        !inFs() && againBtn.disabled === false && /F/.test(againBtn.title || '') && againBtn.pressed === 'false',
+        `disabled=${againBtn.disabled} title=${againBtn.title} pressed=${againBtn.pressed}`);
+    } else {
+      fs = 'refused';
+      const off = lab('btn-fullscreen');
+      // 这一支不能拿"没进全屏"判本作的红：Chrome 拒的是一次**授权**（要瞬时用户激活、标签要在
+      // 最前），那是 headless 的天花板。能断的是本作对自己的说法——js/main.js 只在探不到请求
+      // 方法时才禁用按钮并写明原因，探得到就必须保持可点、title 里的（F）还在。
+      const de = document.documentElement;
+      const hasReq = !!(de.requestFullscreen || de.webkitRequestFullscreen || de.msRequestFullscreen);
+      ck('暂停：按钮状态就是本作对「能不能全屏」的说法（有方法→可点且写键位，无方法→禁用且写原因）',
+        hasReq ? (!off.disabled && /F/.test(off.title || ''))
+               : (off.disabled === true && /主屏幕|不提供/.test(off.title || '')),
+        `有方法=${hasReq} disabled=${off.disabled} title=${off.title}`);
+      ck('暂停：被拒绝的时候不假装按下', off.pressed !== 'true', `${off.text}/${off.pressed}`);
+      const f = await openUntil('scn|newbie|0');
+      ck('暂停：这一支也要把夹具那盘开出来（后面的时钟与锁盘断言要用它）',
+        `${f.w}×${f.h}|${f.puzzle.seed}`, '4×4|scn|newbie|0');
+    }
+
+    const advance = async (ms) => { const c0 = a.simClock(); await wait(ms); return a.simClock() - c0; };
+    const running = await advance(320);
+    ck('暂停：没按暂停时表按墙钟走（320 ms 里至少推进 150 ms）', running >= 150, `Δ=${running}`);
+    // #hud-clock 由那个 1000 ms 的 ticker 写。先证明 ticker 活着，下一条「暂停中它不再变」
+    // 才不是量了一句没人写的死文本。
+    const hudRun0 = text($('#hud-clock'));
+    await wait(1400);
+    const hudRun1 = text($('#hud-clock'));
+    ck('暂停：走表时 HUD 那行时间确实在刷新（对照组，ticker 活着）', hudRun1 !== hudRun0, `${hudRun0} → ${hudRun1}`);
+
+    await clickBtn('#btn-pause');
+    const p1 = lab('btn-pause');
+    ck('暂停：点 #btn-pause 三处一起改口（引擎说在暂停、按钮写「继续」、aria-pressed 变真）',
+      a.paused === true && p1.text === '继续' && p1.pressed === 'true', `${a.paused}/${p1.text}/${p1.pressed}`);
+    const frozen = await advance(700);
+    eq('暂停：暂停把读数冻死（700 ms 之后 Δ 恰好是 0，不是「变慢了」）', frozen, 0);
+    const hudPause0 = text($('#hud-clock'));
+    await wait(1400);
+    eq('暂停：暂停中 HUD 那行时间不再被 ticker 重画', text($('#hud-clock')), hudPause0);
+
+    // 盘面侧：每一类落子入口都按一遍。#btn-hint / #btn-prune / #btn-undo 与三枚工具按钮走的是
+    // 函数口（不经 keydown 那条总闸），A().tap / stroke / revealAll 更是绕过命中测试的编程等价物
+    // ——三条路都得各挡各的，漏一条就等于没锁。
+    const g = () => A().game;
+    const snap = () => {
+      const s = S();
+      const ink = g().ink();
+      return {
+        ink: `${ink.right.join(',')}|${ink.down.join(',')}`,
+        mv: s.moves, ht: s.hints, pr: s.prunes, dec: s.decided, walls: s.walls, merged: s.merged,
+        mode: g().mode, st: s.status,
+      };
+    };
+    const sc = scriptOf(bySeed('scn|newbie|0'));
+    const e0 = sc[0];
+    const e1 = sc[1];
+    const e2 = sc[2];
+    const was = snap();
+    await pointerTap(e0.i, e0.dir);
+    // 一笔拖要**两个**取样点才走得到 stroke()：pointerDrag 只有一条边时按下即抬起，落进的是 tap
+    // 那条分支，那样"拖一笔被挡"这句断言量的其实是又一次点按。
+    await pointerDrag([{ i: e1.i, dir: e1.dir }, { i: e2.i, dir: e2.dir }], false);
+    await clickBtn('#btn-hint');
+    await clickBtn('#btn-prune');
+    await clickBtn('#btn-undo');
+    await clickBtn('#tool-same');
+    await clickBtn('#tool-erase');
+    kd('1'); kd('2'); kd('3'); kd('m'); kd('h'); kd('g'); kd('z');
+    const blockedApi = [
+      a.tap(e0.i, e0.dir, 1),
+      a.stroke([{ i: e1.i, dir: e1.dir }, { i: e2.i, dir: e2.dir }], 1),
+      a.revealAll(),
+    ];
+    const now = snap();
+    eq('暂停：暂停中把点边/拖一笔/提示/补墙/撤销/切工具/按键/API 直调全按一遍，盘上一条边都没动', now.ink, was.ink);
+    eq('暂停：暂停中不记步数', now.mv, was.mv);
+    eq('暂停：暂停中按提示不计费', now.ht, was.ht);
+    eq('暂停：暂停中补墙也不记那一眼', now.pr, was.pr);
+    eq('暂停：暂停中已定边数不变', now.dec, was.dec);
+    eq('暂停：暂停中墙数与打通数都不变', `${now.walls}/${now.merged}`, `${was.walls}/${was.merged}`);
+    eq('暂停：暂停中切工具不生效（模式还是那一枚）', now.mode, was.mode);
+    ck('暂停：绕过命中测试那三个 API 确实被挡回了 null（不是"返回值没人看"）',
+      blockedApi.every((r) => r === null), blockedApi.map((r) => JSON.stringify(r)).join(','));
+    ck('暂停：被拦下的那一下要说人话（#status-line 带 aria-live，读屏会念）',
+      /暂停挡住了/.test(text($('#status-line'))) && $('#status-line').getAttribute('aria-live') === 'polite',
+      `${text($('#status-line'))}｜aria-live=${$('#status-line').getAttribute('aria-live')}`);
+    ck('暂停：页面上那句键位说明写了暂停会锁盘（承诺写在脸上，也得写在断言里）',
+      /暂停中盘面不接受操作/.test([...document.querySelectorAll('.legend')].map((n) => n.textContent).join(' ')),
+        [...document.querySelectorAll('.legend p, .legend')].length + ' 段 legend');
+
+    const atPause = a.simClock();
+    await clickBtn('#btn-pause');
+    const jump = a.elapsed() - atPause;
+    ck('暂停：恢复的第一帧不倒灌暂停那几秒（Δ < 200 ms，不是把暂停的 2 秒一次吃掉）', jump < 200, `Δ=${jump}`);
+    eq('暂停：恢复时按钮改回「暂停」', lab('btn-pause').text, '暂停');
+    const resumed = await advance(260);
+    ck('暂停：恢复后表重新按墙钟走', resumed >= 50, `Δ=${resumed}`);
+    // 对照组：同一批入口在恢复之后必须立刻生效，否则"锁盘"只是把游戏打死。
+    await clickBtn(toolBtnFor(e0.want));
+    await pointerTap(e0.i, e0.dir);
+    eq('暂停：恢复后那一下真的落上（锁盘不是全场死）', g().valueAt(e0.i, e0.dir), e0.want);
+    eq('暂停：恢复后落子照常记步数', S().moves, was.mv + 1);
+    const hBack = a.useHint();
+    ck('暂停：恢复后提示也回来了（并且计费一次）', !!hBack && S().hints >= 1,
+      `hint=${hBack ? '给了' : 'null'} 提示数=${S().hints}`);
+
+    kd('p');
+    eq('暂停：title 写的第一个键 P 真的停表', a.paused, true);
+    const frozenP = await advance(300);
+    eq('暂停：P 停住之后 300 ms 里表一动不动', frozenP, 0);
+    kd(' ');
+    ck('暂停：title 写的另一个键（空格）也认，而且真的松开',
+      a.paused === false && lab('btn-pause').text === '暂停', `paused=${a.paused}/${lab('btn-pause').text}`);
+    const afterSpace = await advance(260);
+    ck('暂停：空格松开之后表接着走', afterSpace >= 50, `Δ=${afterSpace}`);
+
+    // 总闸放行的那两颗键各走一遍：N 换一局（新局一定在走）、Esc 回选档（不改这盘的盘面）。
+    kd('p');
+    eq('暂停：为这两条腿再冻一次表', a.paused, true);
+    kd('n');
+    await wait(60);
+    for (let i = 0; i < 1200 && (a.game && a.game.puzzle.seed === 'scn|newbie|0'); i++) await wait(25);
+    ck('暂停：暂停中按 N 换得出新局，而且新局一定在走（按钮与时钟不许各说各话）',
+      a.paused === false && lab('btn-pause').text === '暂停' && lab('btn-pause').pressed === 'false'
+        && a.game.puzzle.seed !== 'scn|newbie|0',
+      `paused=${a.paused}/${lab('btn-pause').text}/seed=${a.game && a.game.puzzle.seed}`);
+    const afterNew = await advance(300);
+    ck('暂停：换出来的那一局顶着的表在走', afterNew >= 50, `Δ=${afterNew}`);
+    kd('p');
+    kd('Escape');
+    await wait(60);
+    ck('暂停：暂停中按 Esc 能回选档（锁的是盘，不是整个界面）', a.view() === 'menu' && a.paused === true,
+      `view=${a.view()} paused=${a.paused}`);
+    await openUntil('scn|newbie|0');
+    ck('暂停：从选档重新开的那一盘不再顶着暂停态', a.paused === false && lab('btn-pause').text === '暂停',
+      `paused=${a.paused}/${lab('btn-pause').text}`);
+    const afterReopen = await advance(300);
+    ck('暂停：重新开局之后表在走（续档那条路也不留死表）', afterReopen >= 50, `Δ=${afterReopen}`);
+
+    const errsNow = PROBE.js.length - errs0;
+    ck('暂停：这一场没有未捕获异常 / 未处理 rejection / console.error',
+      errsNow === 0, PROBE.js.slice(errs0, errs0 + 3).join(' | '));
+    return report({
+      fs, focus: document.hasFocus(), fsEnabled: document.fullscreenEnabled,
+      running, frozen, frozenP, jump, resumed, afterSpace, afterNew, afterReopen,
+      hud: `${hudRun0}→${hudRun1}→${text($('#hud-clock'))}`, errs: errsNow,
+    });
+  };
+
+  w.__scn = { first, play, undo: undoScn, hint, clash, win, save, resume, layout, narrow, pause };
   w.__fixture = FIXTURE;
 })(window);

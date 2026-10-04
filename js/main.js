@@ -851,13 +851,17 @@ window.tatamibari = {
 
   // fullscreen 返回 Promise，被拒时必须吃掉：iOS Safari 对多数非 video 元素直接拒绝，
   // 让这个 rejection 冒泡出去会变成一条未捕获错误，整局游戏跟着挂。
-  // 但拒绝要分两种，别把一次"没给许可"当成"这台机器不行"：NotAllowedError 说的是**这一次**
-  // 请求的授权（没有瞬时用户激活、iframe 的 allow 里缺 fullscreen），过一会儿再点就好；
-  // 上一版一律走 unsupported()，于是自动化/受限上下文里一次被拒就把一颗好按钮永久禁掉，
-  // 还对玩家谎称"这个浏览器不提供元素全屏"。真正没有这能力的是 req 本身不存在（上面已判）。
-  const settle = (p) => {
-    if (p && p.catch) p.catch((err) => { if (!err || err.name !== 'NotAllowedError') unsupported(); });
-  };
+  //
+  // 但**任何** rejection 都不得当成"这台机器不行"。真正的"没有这能力"在上面的
+  // `if (!req)` 已经判完了；能走到这里就说明能力是有的，只是**这一次**没成：
+  // 没有瞬时用户激活、iframe 的 allow 里缺 fullscreen、上一次请求还没结束导致的
+  // AbortError、受限/headless 环境下的 TypeError……这些过一会儿再点就好。
+  //
+  // 上一版只把 NotAllowedError 排除在外，AbortError 与 TypeError 照样走进
+  // unsupported()，于是自动化环境里一次被拒就把一颗好按钮**永久禁掉**，还对着玩家
+  // 谎称"这个浏览器不提供元素全屏"。这与它想修的 NotAllowedError 是同一个错，
+  // 只是换了错误名——所以这里改成一律不禁用，交给玩家下一次点击重试。
+  const settle = (p) => { if (p && p.catch) p.catch(() => {}); };
 
   // 进出都能走：已经全屏时这次调用是退出，不是"再进一次"。
   function toggle() {
@@ -870,7 +874,8 @@ window.tatamibari = {
         unsupported();
       }
     } catch (e) {
-      unsupported();
+      // 同 settle()：req 存在就说明能力在，不能因为这一次抛错就永久禁掉一颗好按钮
+      // 并谎称不支持。保持可点，让玩家重试。
     }
   }
 

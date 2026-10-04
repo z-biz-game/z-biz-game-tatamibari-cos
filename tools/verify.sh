@@ -36,7 +36,7 @@ CHROME=${CHROME_BIN:-}
 #   save→resume 是一对**跨刷新**的戏 —— playtest.cjs 每个场景都重新注入并 navigate 一次，
 #   后一段读的是磁盘上的存档而不是内存里的残骸，所以这两段之间不许插别的场景；
 #   narrow 那一段逐字断言视口，必须拿自己的 VIEWPORT 跑（见下面那两行 VP_）。
-SCENARIOS_DONE="first play undo hint clash win save resume layout narrow"
+SCENARIOS_DONE="first play undo hint clash win save resume layout narrow pause"
 # narrow 那条场景断言 `${innerWidth},${innerHeight}` === '390,844'（tools/scenarios.js 里 narrow 的第一行），
 # 靠的是 playtest.cjs 的 VIEWPORT —— 它在第一次导航**之前**下 Emulation.setDeviceMetricsOverride。
 # 每一段都显式带上视口，包括默认那一档：override 挂在 target 上，不清就等于留给下一段，
