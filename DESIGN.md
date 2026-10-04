@@ -208,7 +208,46 @@ Chrome 一侧逐字段复现它们；但如果 node 这一侧不再产出同样�
 盘）；时间不进任何谓词（第 7 节）。`tools/pencil-test.mjs` 跑两遍逐字节相同是这条的验收——本轮
 验过（`cmp` 无差异）。
 
-## 12. 复现这些数字
+## 12. 暂停冻的是两样东西，全屏那条腿为什么要抢在最前面
+
+纪录的比法是**提示 → 步数 → 用时**（`js/store.js:136-141`，最后一格是 `return a.ms < b.ms;`）。
+只把侧栏那行用时停下来、盘面照常能吃子，等于把思考时间免费送进那把尺的最后一格：想完整盘再按继续，
+交上去的用时里少掉那几秒，而榜还在——榜的含义已经被改写。所以这一条是反洗钱，不是体贴。akari 用
+遮罩把盘盖住，kakuro 用 `blockedWhilePaused`，本作把落子入口按**三类**各挡一遍：真指针（canvas 的
+`pointerdown`）、函数口（`setMode`/`useHint`/`undo`/`prune` 以及那三枚工具按钮）、以及绕过命中测试的
+编程等价物（`A().tap`/`A().stroke`/`A().revealAll`）。只挡一类等于没锁：闸里那三个 API 直调断言
+存在的理由就是"漏的那一类永远没人按"。
+
+键盘那条总闸挂在 `keydown` 那一层，而不是逐个包 `stroke`/`tap`：`1` `2` `3` `m` 改工具态、
+`h` `g` `z` 直接动盘，它们各走各的函数，逐个包会漏掉下一个新加的键。放行的只有解暂停那两颗键、
+「换一局」（`n`）和上面已经 `return` 掉的 `Esc`。`n` 之所以能穿过去，是因为 `adopt()` 里那句
+`if (paused) { paused = false; paintPause(); }`——本作的时钟住在 `js/main.js`（`baseMs`/`startedAt`），
+新局一上台就把上一局的暂停态摘掉，按钮和表不许各说各话。**同一类缺陷在 kakuro 的修法不一样**：
+那一仓的 `paused` 住在引擎对象里，要清的是 `load()`。跨仓抄的是"换一局会不会顶着死表"这个问题，
+不是那一行代码。
+
+`pause` 场里全屏那两条腿排在**最前面**，这不是排版偏好而是 Chrome 的授权形状：一次
+`Runtime.evaluate` 只发一份瞬时用户激活，第一下 `requestFullscreen()` 就把它吃掉，而那份激活几秒后就
+过期。这一串如果排在任何一次 `await wait(...)` 之后，连"第一次进入"都会被拒——那是 headless 的天花板，
+不是产品缺陷（上一仓就是这么红的）。所以进入/退出/键位那几条都排在场景开头，跑到那里时激活还在。
+被拒那一支也不是没法测：`tools/playtest.cjs` 上的 `USER_GESTURE=0` 直接把激活扣住，分支就轮到跑
+（不扣激活时同一条命令走的是 `fs:'entered'` 那一支）——一条没人能切上去的分支，就是一条永远不跑的分支。
+
+**一次"没给许可"不许冒充"这台机器不行"**。`req` 存在就说明这台浏览器有这能力，能走到 rejection 只可能
+是这一次没成：没有瞬时用户激活、iframe 的 `allow` 里缺 `fullscreen`、上一次请求还没结束（AbortError）、
+受限上下文里的 TypeError。上一版只把 `NotAllowedError` 排除在外，其余 rejection 照样送去 `unsupported()`，
+于是自动化环境里一次被拒就把一颗好按钮**永久禁掉**，还对玩家谎称"这个浏览器不提供元素全屏"——这与它
+本来要修的 `NotAllowedError` 是同一个错，只是换了错误名。现在一律不禁用，交给玩家下一次点击重试；
+真正该禁用并写明原因的，只有上面探不到请求方法那一支。闸里那条断言因此钉的是"被拒之后按钮还活着、
+title 里那句（F）还在、`aria-pressed` 没假装按下"。
+
+读数住在哪：root 与 prefix 两形各 51 条 0 失败，对着线上 `dfe0888` 那一跑也是 51 条 0 失败
+（`fs:'entered'`、`frozen 0`、`frozenP 0`、`jump 13`）。表那侧钉的是**恰好 0**，不是"变慢了"；
+盘那侧比较的是暂停前后整张墨水表加八个计数器。恢复之后同一批入口立刻重新生效那一组是对照组——
+少了它，"锁盘"这五个字也可以由一个全场死的实现满足。`#status-line` 那句被拦下的说法只断言了文本与
+`aria-live` 属性在，读屏实际念不念没有验证（见 README「这个仓不承诺什么」）。
+
+## 13. 复现这些数字
 
 ```
 npm run check                          → 每个源文件 node --check，打印 OK
@@ -216,19 +255,21 @@ node tools/rule-test.mjs               → 65 通过 / 0 失败
 node tools/counter-test.mjs            → 74 通过 / 0 失败
 node tools/pencil-test.mjs             → 206 通过 / 0 失败（A0 扫目录，条数随引擎文件数变）
 SAMPLES=24 node tools/balance.mjs      → 退出码 0，35.6 s（本机 load1 34.6；2026-09-28 06:09 那一跑）
-bash tools/verify.sh                   → node 夹具 3/3 · root 10/10 场景 336 checks 0 failed 10s
-                                          · prefix 同 336 · 0 failed 9s · 整轮 21.7 s
+bash tools/verify.sh                   → node 夹具 3/3 · root 11/11 场景 387 checks 0 failed 16s
+                                          · prefix 同 387 · 0 failed 17s
 BASE_URL=<已部署站点> bash tools/verify.sh → 只跑部署件这一种形态（用法见 tools/verify.sh:8-12）
 ```
 
-`bash tools/verify.sh` 那一条现在有三种跑法（用法在 `tools/verify.sh:8-12`），本轮三种都绿：本机
-root + prefix 双形态（336 ×2）、`SHAPES=root` 单形态、以及 `BASE_URL=https://z-biz-game.github.io/
-z-biz-game-tatamibari-cos/` 只打线上件那一跑（336 条 / 0 failed / 15.4 s，node 夹具那 3/3 条仍然
-由本地 node 重算）。线上那 12 个发送件（`index.html` + `css/` + `js/`，`git ls-files` 数出来的）
-与磁盘逐文件 sha256 前 12 位相同——线上绿的是这份字节，不是本机侥幸能跑的那一份。CI 的 browser job
-在同一条 `bash tools/verify.sh` 上给出 root 336 / prefix 336 / 0 failed（ubuntu-24.04；
-`node-version: 22` 是这个 job 的，check 那个 job 用另一版）。远端首跑（`43518d2`）两个 job 与 Pages
-部署全绿，Pages 是在 push **之前**用 `build_type: workflow` 开好的——先推再开会让 configure-pages
+`bash tools/verify.sh` 那一条现在有三种跑法（用法在 `tools/verify.sh:8-12`），2026-10-04 这一轮三种
+都绿：本机 root + prefix 双形态（387 ×2）、`SHAPES=root` 单形态、以及
+`BASE_URL=https://z-biz-game.github.io/z-biz-game-tatamibari-cos/` 只打线上件那一跑（387 条 /
+0 failed / 23 s，node 夹具那 3/3 条仍然由本地 node 重算）。线上那一跑发送的 13 个文件（`index.html`
++ `css/` + `js/`，个数由 `git ls-tree -r dfe0888 --name-only` 现数）与磁盘逐文件 sha256 相同、
+0 个不一致、0 个取不到——线上绿的是这份字节，不是本机侥幸能跑的那一份。CI 在同一条
+`bash tools/verify.sh` 上对 `dfe0888` 报两条 job 都 success（ubuntu-24.04；`node-version: 22` 是
+这个 job 的，check 那个 job 用另一版）；job 自己打印的条数住在 Actions 日志里，读它要 `actions:read`，
+本机这把 PAT 会 403，所以这里不抄 runner 的数，只记它的红绿。更早那次远端首跑（`43518d2`）两个 job 与
+Pages 部署全绿，Pages 是在 push **之前**用 `build_type: workflow` 开好的——先推再开会让 configure-pages
 撞上一个还不存在的 workflow。
 末行的措辞也是这一轮改的：旧文案在 `SHAPES=root` 或 `BASE_URL=` 那一跑里照样打印"两种 URL 形态"，
 而那一跑其实只覆盖一种——现在它打印的是这一跑**实际**跑过的形态名，把这句抄进文档的人才不会

@@ -46,6 +46,15 @@ tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2
 - 落子：点一下一条边界，按住拖是一笔连画，从自己已经画下的线上起笔就是擦掉；`1` 画墙、`2` 打通、
   `3` 擦、`H` 提示、`G` 补一眼墙（免费）、`Z` 撤销、`N` 换一局（`index.html:147-150`）。
   一笔算一条撤销记录，不是每条边一条。
+- 暂停：`P` / `空格` / 「暂停」那颗钮走的是同一个入口，冻住的是**两样东西**——侧栏那行用时，以及
+  **整个盘面**。暂停期间点边、拖一笔、`1` `2` `3` `m` `h` `g` `z`、提示、补墙、撤销都不碰盘
+  （`js/main.js` 的 `blockedWhilePaused`，页面上那句键位说明也写了这条），被拦下的那一下把理由
+  写进 `#status-line`。穿得过锁的只有解暂停那两颗键、「换一局」（新局一定在走表）与 `Esc`（回选档，
+  不改这盘的盘面）。为什么必须连盘一起锁：纪录的比法是**提示 → 步数 → 用时**
+  （`js/store.js:136-141`），只停表不把盘子冻住，就是拿暂停去喂那把尺的最后一格——想完整盘再按继续，
+  交上去的用时里少掉那几秒。`pause` 场（`tools/scenarios.js:1332` 起，51 条）把这两件事各量成断言：
+  表那侧钉 `frozen === 0` 与 `frozenP === 0`（恰好 0，不是"变慢了"），盘那侧把上面每一个入口在暂停中
+  按一遍、比较前后两次的整张墨水表，再用恢复后的同一批入口做对照组（锁盘不许是全场死）。
 - 提示走的是**出题时那条铅笔序列**（`js/ui/game.js:353-373`）：它只说"这一条边必须是墙 / 必须
   打通"，并点名是 R1–R7 里哪一条给的结论，不替你收尾整盘（`index.html:151-154`）。你自己已经
   画反了的时候，提示拒绝落子、也不计费（`js/ui/game.js:355-358` 的 `charged: false`）。
@@ -92,13 +101,15 @@ tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2
   `:1176` 都钉 `integrity === null`），那句拒绝文案长什么样、渲染在哪，没有任何断言读过。
 - **只在 headless Chrome 里绿过**（本机 macOS 与 CI 的 ubuntu-24.04 两种环境，Safari、Firefox、真机
   iOS/Android、低配设备未经验证）。`bash tools/verify.sh` 在本机跑 root 形态与带
-  `/z-biz-game-tatamibari-cos/` 前缀的两种 URL（各 10 个场景、各 336 条、0 failed，root 11 s ·
-  prefix 9 s · 整轮 22.1 秒）；CI 的 browser job 在同一条命令上给出 336/336、0 failed（root 10 s ·
-  prefix 9 s）。已部署站点那一种形态走 `BASE_URL=` 那条路（`tools/verify.sh` 的用法块 `:8-12`）：
-  远端首跑 `43518d2` 的两个 job 与 Pages 部署都绿之后复跑，线上件 **336 条 / 0 failed / 15.4 秒**，
-  而且发送的那 12 个文件（`index.html` + `css/` + `js/`，`git ls-files` 数出来的）线上与本地
-  sha256 前 12 位一一相同——闸绿的是那份字节，不是本机侥幸能跑的那份。部署工作流是无构建的文件
-  拷贝（`.github/workflows/pages.yml`）。
+  `/z-biz-game-tatamibari-cos/` 前缀的两种 URL（各 11 个场景、各 387 条、0 failed；2026-10-04 那一跑
+  root 16 s · prefix 17 s）；CI 在同一条命令上两条 job 都报 success（run #13，SHA `dfe0888`）——
+  runner 自己打印的条数住在 Actions 日志里，读它要 `actions:read`，本机这把 PAT 会 403，所以这里只
+  记它的红绿、不抄它的数。已部署站点那一种形态走 `BASE_URL=` 那条路（`tools/verify.sh` 的用法块
+  `:8-12`）：同一天对着线上 `dfe0888` 跑是 **11 场景 387 条 / 0 failed / 23 s**、exit 0，`pause`
+  那条交回 `fs 'entered'`（全屏腿在线上排得进去，不是只在 localhost 才绿）、`frozen 0`/`frozenP 0`/
+  `jump 13`；发送的那 13 个文件（`index.html` + `css/` + `js/`，个数由 `git ls-tree -r dfe0888`
+  现数）线上与本地逐文件 sha256 全相同——0 个不一致、0 个取不到，闸绿的是那份字节，不是本机侥幸能跑的
+  那一份。部署工作流是无构建的文件拷贝（`.github/workflows/pages.yml`）。
 - **无障碍只做了两件事**：`prefers-reduced-motion` 有一整套降级（`css/game.css:546`），画布有
   `role="img"` 与一句说明性的 `aria-label`（`index.html:102`）。键盘导航顺序、读屏播报、
   `aria-live` 的实际朗读内容都没有断言过——闸点的是画布像素与 DOM 文本。
@@ -138,7 +149,7 @@ node tools/rule-test.mjs                          → 65 条：合法盘定义�
 node tools/counter-test.mjs                       → 74 条：两套穷举互相对答案（含"数到 2 就停"的语义）
 node tools/pencil-test.mjs                        → 206 条：A0 分层 + 底座对暴力 + 每条规则单独跑 + 真值逐条审计 + 强度差
 SAMPLES=24 node tools/balance.mjs                 → 五档阶梯、两条承诺、极小性抽样、复解一致、UNSHIPPABLE 重量，退出码 0
-bash tools/verify.sh                              → node 夹具 3/3 + 两种 URL 形态各 10 个场景 · 336 checks · 0 failed（root 10 s · prefix 9 s，整轮 21.7 s）
+bash tools/verify.sh                              → node 夹具 3/3 + 两种 URL 形态各 11 个场景 · 387 checks · 0 failed（2026-10-04：root 16 s · prefix 17 s）
 ```
 
 `206` 是 2026-09-28 那一轮的条数，不是常数：A0 那节扫的是 `js/engine/` **目录本身**，多一个引擎
@@ -146,11 +157,12 @@ bash tools/verify.sh                              → node 夹具 3/3 + 两种 U
 当合同，改代码导致条数变化时必须一起改那里，并把新读数写回本节——把条数改小去迁就一次红，等于
 让闸不再测它声称在测的东西。
 
-浏览器闸的 10 个场景各自咬住一块（`tools/verify.sh:39` 的清单，`tools/scenarios.js:1324` 注册）：
+浏览器闸的 11 个场景各自咬住一块（`tools/verify.sh:39` 的清单，`tools/scenarios.js:1569` 注册）：
 `first` 78 条（启动、选档页、DOM 面、空盘像素）、`play` 50（真指针的一局）、`undo` 35、`hint` 17、
 `clash` 21（画反了当场被证伪，且提示拒答不计费）、`win` 51（遮罩、证词行、整盘墙改色）、
 `save` 29 与 `resume` 31（**跨刷新**的一对：存档的 RLE 与真指针画出来的墨水必须同源）、
-`layout` 12、`narrow` 12（真 390×844 视口，不是改 `max-width`）。
+`layout` 12、`narrow` 12（真 390×844 视口，不是改 `max-width`）、`pause` 51（冻表**并且**锁盘，
+外加全屏那两条腿——它为什么要排在最前面写在 `DESIGN.md` 第 12 节）。
 
 ## 技术形态
 

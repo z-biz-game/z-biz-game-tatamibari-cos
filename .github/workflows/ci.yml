@@ -80,8 +80,9 @@ jobs:
   # The browser gate is where this repo's four promises stop being prose. It runs BOTH URL
   # shapes (tools/verify.sh:4-6): the repo-as-document-root shape and the Pages shape
   # `/<repo>/`, and only the second one can see a page-level `/js/...` specifier resolve to a
-  # 404 (verify.sh:14-18). 10 scenarios × 336 checks, measured locally 2026-09-28: root 336
-  # checks 0 failed in 9 s, prefix identical, whole run 20.4 s.
+  # 404 (verify.sh:14-18). 11 scenarios x 387 checks, measured locally 2026-10-04: root 387
+  # checks 0 failed in 16 s, prefix the same 387 in 17 s. The job's own printout lives in the
+  # Actions log, which needs actions:read to fetch — so nothing here quotes a runner number.
   browser:
     name: real browser gate (both URL shapes)
     runs-on: ubuntu-latest
