@@ -6,7 +6,7 @@
 
 本文里的数字只有两类来源：仓里读得到的代码（写成 `文件:行号`），和 2026-09-28 那一轮全绿跑出来的
 读数。跑的命令是 `npm run check`、`npm test`（三套 65 / 74 / 206 条）、`SAMPLES=24 node
-tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2 / Apple M5 Pro / tools/assemble-site / tools/deploy-set / tools/deploy-set-selftest
+tools/balance.mjs`、`bash tools/verify.sh`，环境 Node v26.8.1 / macOS 26.6.2 / Apple M5 Pro
 15 核。引擎断言与 `npm run check` 是当场重跑的（65 / 74 / 206 这三条读数 CI 的 ubuntu runner 上也是
 同一组）；难度分位表取 06:09 那一跑（之前同代码还连跑过两次，只有墙钟列在动），浏览器门禁取 06:20
 那两次跑（本机双形态与线上单形态各一跑），逐条列在下面。
