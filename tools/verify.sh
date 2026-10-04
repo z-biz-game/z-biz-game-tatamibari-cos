@@ -432,5 +432,10 @@ done
 
 kill $WD 2>/dev/null
 # 只报这一跑真的跑过的形态：SHAPES=root / BASE_URL= 那种单形态跑，旧文案照样打印"两种 URL 形态"。
+# 部署集闸：ci.yml 跑这两步、本地整闸以前一次都不跑。缺这一步就是「本地全绿、线上 404 自己的
+# manifest / sw.js / 图标」这一整类坏法。它不碰 Chrome，也不读页面，纯查产物。
+echo "=== deploy-set ==="
+node tools/deploy-set.mjs || FAILED=1
+node tools/deploy-set-selftest.mjs || FAILED=1
 [ $FAILED -eq 0 ] && echo "=== ALL GREEN（这一跑实际覆盖的 URL 形态：${RAN# }）===" || echo "=== FAILURES ABOVE ==="
 exit $FAILED
