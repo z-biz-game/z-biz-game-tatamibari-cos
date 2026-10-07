@@ -48,6 +48,12 @@ jobs:
       - name: Pencil tests (every deduction audited against ground truth)
         run: node tools/pencil-test.mjs
 
+      # Docs carry line numbers; a citation that quietly slid one line sideways is a false
+      # receipt, not a typo. Bounds alone cannot see it (the drifted ones all stayed in range),
+      # so the identifier glued to the citation has to appear inside the lines it points at.
+      - name: Doc line citations still resolve
+        run: npm run test:docs
+
       # The ladder is a promise, not a caption: TIERS[].band and TIERS[].budgetMs are selection
       # targets backfilled from this table, and the step goes red when a tier stops landing in
       # its own band, when the medians stop ordering, when a shipped board stops being
