@@ -44,15 +44,22 @@ const linesOf = (() => {
 
 const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
 const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
-// 锚点可以是成员路径（`window.ferry.state`），但不许是文件路径：body 里带 `/` 的那一类是另一条引用，
-// 把它当锚点按字符串去被指的那几行里找，只会凭空造出假红。`file.js::symbol` 这种写法指的是 symbol，
-// 先按 `::` 取后段，否则拆出来的首段是文件名（`validate.js`），它当然不在被指的那几行里。
+// 锚点可以是成员路径（`window.ferry.state`）。`path/dir/file.js::symbol` 指的是 symbol 而不是那串路径，
+// 所以先按最后一个 `::` 取后段；剩下的里还有 `/` 才判"那是另一条引用"——把它当锚点按字符串去被指的
+// 那几行里找，只会凭空造出假红。`Math.max(a, b)` 指的是被调的那个函数（切掉参数表），`X = 12` 取等号左端；
+// 剩下那些"好几个裸词"的 body 是命令行（`npm run test:docs`），首词不是被引用的东西，硬按它钉就是一次假红。
 const ID = /^[A-Za-z_$][A-Za-z0-9_$]{2,}(?:\.[A-Za-z_$][A-Za-z0-9_$]+)*$/;
 const tokOf = (body) => {
-  if (body.includes('/')) return '';
   const seg = body.includes('::') ? body.slice(body.lastIndexOf('::') + 2) : body;
-  const t = seg.split(/[(:：\s]/)[0];
-  return ID.test(t) ? t : '';
+  if (seg.includes('/')) return '';
+  // 带 `<占位>` 的模板 body 指的是那串字面量前缀：`daily:<本地日期>:<档>` 说的是 `daily` 这个键的形状。
+  // 只有真的写了占位符才这么拆，否则 `test:syntax` 这种脚本名会被拆成 `test`，又是一次假红。
+  const tpl = /^([^<>]+?)<[^<>\s]+>/.exec(seg);
+  if (tpl && ID.test(tpl[1].split(':')[0].trim())) return tpl[1].split(':')[0].trim();
+  const head = seg.split('(')[0].trim();
+  if (ID.test(head)) return head;
+  const lhs = head.split(/[=:]\s/)[0].trim();
+  return ID.test(lhs) ? lhs : '';
 };
 
 function parseRefs(text) {
@@ -144,17 +151,23 @@ ok('文档的行号引用多到闸能看见（少于 60 条就是缩样）', ref
     `闸数到 ${refs} · 文档写了 ${claims.length} 处：${[...new Set(claims)].join('/')}`);
 }
 
-// 反空转：六把假引用必须一把不落——文件不存在、行号越界、三种指认写法各自的锚点漂、行数写错。
-const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`');
-ok('假引用六把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂）', fake.bad.length === 6, fake.bad.join(' | '));
+// 反空转：七把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错。
+const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）');
+ok('假引用七把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂 / 函数调用形式锚点漂）', fake.bad.length === 7, fake.bad.join(' | '));
 
 // 阳性对照：三种指认写法与真行数必须判绿，否则上一条的"红"可能只是解析器自己坏了。
 const pkgLines = linesOf('package.json');
 const real = audit('`HEADROOM`（`tools/balance.mjs:61`）与 `package.json`（' + (pkgLines ? pkgLines.length : 0) + ' 行）');
 ok('真引用与真行数在同一个解析器下判绿', real.bad.length === 0 && real.refs.length === 1,
   real.bad.join(' | ') + `（refs=${real.refs.length}）`);
-const fwd = audit('`tools/balance.mjs:61`（`HEADROOM`）、`tools/balance.mjs:61` 的 `HEADROOM`、`js/engine/validate.js:40`（`validate.js::invalidReason`）');
-ok('前向括号、「的」与 `file::symbol` 三种真注解都判绿', fwd.bad.length === 0 && fwd.refs.length === 3,
+// 「不该指认」的那一组也算正样本：带空格的命令行 body 在"按首词切"的老写法下会拿 `npm` 当锚点，
+// 在它自己造的那一行上红——这一组把那条退路钉住。
+const fwd = audit('`tools/balance.mjs:61`（`HEADROOM`）、`tools/balance.mjs:61` 的 `HEADROOM`、' +
+  '`js/engine/validate.js:40`（`js/engine/validate.js::invalidReason`）、' +
+  '`js/engine/generate.js:217`（`Math.max(2, Math.ceil(density * markers.length))`）、' +
+  '`js/engine/generate.js:217`（`npm run test:docs`）');
+ok('前向括号、「的」、`path::symbol`、函数调用四种真注解，加上带空格的命令行 body，都在同一个解析器下判绿',
+  fwd.bad.length === 0 && fwd.refs.length === 5,
   fwd.bad.join(' | ') + `（refs=${fwd.refs.length}）`);
 // 反方向的控制：逗号不是指认。前面那个名字只是列表的上一项，按它钉会把正确的文档读红。
 // 这一把只有在线 61 真的没有 elapsedMs 时才算数——它没有，所以规则一松就会被推翻。
