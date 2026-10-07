@@ -132,6 +132,13 @@ function audit(text) {
       bad.push(`${r.path}:${r.from}-${r.to} 越界（该文件共 ${lines.length} 行）`);
       continue;
     }
+    // 在范围内不等于"指到了东西"：没有锚点的引用漂到空行上，旧规则读成绿——2026-10-07 在同族审计腿
+    // 的一条真漂移上实测过（文档写 `…:79`，79 行是 `};` 与段标题之间的空白，闸当时打「指不回实处的
+    // 0 条」并退 0）。整段空白只报这一条就不再找锚点：空段里必然找不到，报两行会把一把刀的红拆成两行。
+    if (lines.slice(r.from - 1, r.to).join('').trim() === '') {
+      bad.push(`${r.path}:${r.from}-${r.to} 那几行整段是空行`);
+      continue;
+    }
     if (r.anchor && !lines.slice(r.from - 1, r.to).join('\n').includes(r.anchor)) {
       bad.push(`${r.path}:${r.from}-${r.to} 那几行里没有 ${r.anchor}`);
     }
@@ -220,9 +227,15 @@ ok('同一句改写成完整引用就读得回来：上一条红的是写法，�
   cC.refs.length === 1 && cC.unaddressed === 0 && cC.bad.length === 0,
   `refs=${cC.refs.length} 借不到=${cC.unaddressed} 红=${cC.bad.join(' | ') || '无'}`);
 
-// 反空转：七把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错。
-const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）');
-ok('假引用七把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂 / 函数调用形式锚点漂）', fake.bad.length === 7, fake.bad.join(' | '));
+// 反空转：八把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错、
+// 以及一条没有锚点却整段落在空行上的。第八把那行的行号是当场从 js/main.js 数出来的空行，不手抄，
+// 所以源码怎么漂它都还指着真空行；blankAt 自己数不到空行时这条算红，而不是少一把。
+const mainLines = linesOf('js/main.js') || [];
+let blankAt = 0;
+for (let i = 1; i < mainLines.length; i++) if (String(mainLines[i]).trim() === '') { blankAt = i + 1; break; }
+const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）、' + `\`js/main.js:${blankAt}\``);
+ok('假引用八把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂 / 函数调用形式锚点漂 / 没有锚点却落在空行上）',
+  blankAt > 0 && fake.bad.length === 8, `空行靶子在第 ${blankAt} 行 · ${fake.bad.join(' | ')}`);
 
 // 阳性对照：三种指认写法与真行数必须判绿，否则上一条的"红"可能只是解析器自己坏了。
 const pkgLines = linesOf('package.json');
