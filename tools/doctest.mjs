@@ -44,6 +44,23 @@ const linesOf = (() => {
 
 const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
 const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
+// 续引：完整引用后面只写行号——`tools/balance.mjs:61`（`HEADROOM`）之后再写一串数字。本仓文档里
+// 这种写法不少，而这条腿以前只认 `path:NN`：它报"全部指到实处"时看的其实是文档的一部分。
+// 借规则：只向**同一句里最近的那条完整引用**借出处；句号、分号、空行、新标题都截断这次借。
+// 正文里提到一个文件名不构成出处：宁可计入「无法定址」，也不要在错的文件上判绿（判绿比判红糟）。
+// 条数不在注释里写（那是一条会漂的话），它由下面的覆盖面行与等值闸现数现钉。
+const BARE = /^:([0-9]+(?:[,-][0-9]+)*)$/;
+const STOP = /[。！？；]/;
+const inheritedPath = (text, spans, i) => {
+  for (let j = i - 1; j >= 0; j--) {
+    const pc = spans[j].body.match(CITE);
+    if (!pc) continue;
+    const between = text.slice(spans[j].end, spans[i].s);
+    if (between.includes('\n') && (STOP.test(between) || /\n[ \t]*\n/.test(between) || /\n#{1,6} /.test(between))) return null;
+    return { path: pc[1] };
+  }
+  return null;
+};
 // 锚点可以是成员路径（`window.ferry.state`）。`path/dir/file.js::symbol` 指的是 symbol 而不是那串路径，
 // 所以先按最后一个 `::` 取后段；剩下的里还有 `/` 才判"那是另一条引用"——把它当锚点按字符串去被指的
 // 那几行里找，只会凭空造出假红。`Math.max(a, b)` 指的是被调的那个函数（切掉参数表），`X = 12` 取等号左端；
@@ -62,7 +79,7 @@ const tokOf = (body) => {
   return ID.test(lhs) ? lhs : '';
 };
 
-function parseRefs(text) {
+function parseRefs(text, orphans = null) {
   const spans = [];
   const spanRe = /`([^`\n]+)`/g;
   let m;
@@ -70,7 +87,10 @@ function parseRefs(text) {
   const out = [];
   for (let i = 0; i < spans.length; i++) {
     const c = spans[i].body.match(CITE);
-    if (!c) continue;
+    const bare = c ? null : BARE.exec(spans[i].body);
+    if (!c && !bare) continue;
+    const owner = c ? { path: c[1] } : inheritedPath(text, spans, i);
+    if (!owner) { if (orphans) orphans.push(bare[0]); continue; }
     let anchor = '';
     let consumed = false;
     // 三种指认写法：`path:NN`（`name`）、`path:NN` 的 `name`（都算前向），以及 `name`（`path:NN`）（后向）。
@@ -91,9 +111,11 @@ function parseRefs(text) {
       const shaped = /^[（(]/.test(gT) || /[\w一-鿿]/.test(gT);
       if (shaped && !/\s/.test(prev.body) && gap.length <= 4 && !gap.includes('\n')) anchor = tokOf(prev.body);
     }
-    for (const seg of c[2].split(',')) {
+    // 续引只借路径——它自己印的那些数字才是文档的主张。
+    const range = c ? c[2] : bare[1];
+    for (const seg of range.split(',')) {
       const parts = seg.split('-').map(Number);
-      out.push({ path: c[1], from: parts[0], to: parts[parts.length - 1] || parts[0], anchor });
+      out.push({ path: owner.path, from: parts[0], to: parts[parts.length - 1] || parts[0], anchor, cont: !c });
     }
   }
   return out;
@@ -101,7 +123,8 @@ function parseRefs(text) {
 
 function audit(text) {
   const bad = [];
-  const refs = parseRefs(text);
+  const orphans = [];
+  const refs = parseRefs(text, orphans);
   for (const r of refs) {
     const lines = linesOf(r.path);
     if (!lines) { bad.push(`${r.path}:${r.from} 文件不存在`); continue; }
@@ -120,13 +143,15 @@ function audit(text) {
     if (!lines) bad.push(`${m[1]}（${m[2]} 行）文件不存在`);
     else if (lines.length !== Number(m[2])) bad.push(`${m[1]} 实测 ${lines.length} 行，文档写的是 ${m[2]}`);
   }
-  return { refs, bad };
+  return { refs, bad, cont: refs.filter((r) => r.cont).length, unaddressed: orphans.length };
 }
 
 const docs = fs.readdirSync(ROOT).filter((f) => f.endsWith('.md')).map((f) => path.join(ROOT, f));
 ok('仓库根有文档可审（闸的输入集不许自己空掉）', docs.length >= 1, docs.map((d) => path.basename(d)).join(','));
 
 let refs = 0;
+let contRefs = 0;
+let unaddressed = 0;
 const allBad = [];
 let docText = '';
 for (const d of docs) {
@@ -134,6 +159,8 @@ for (const d of docs) {
   docText += t;
   const a = audit(t);
   refs += a.refs.length;
+  contRefs += a.cont;
+  unaddressed += a.unaddressed;
   for (const b of a.bad) allBad.push(`${path.basename(d)} · ${b}`);
 }
 ok('文档里每一条 文件:行号 与每一处「N 行」都指到实处', allBad.length === 0,
@@ -150,6 +177,48 @@ ok('文档的行号引用多到闸能看见（少于 60 条就是缩样）', ref
     Number.isInteger(refs) && claims.length >= 1 && claims.every((c) => c === refs),
     `闸数到 ${refs} · 文档写了 ${claims.length} 处：${[...new Set(claims)].join('/')}`);
 }
+
+// 续引在本仓文档里到底借到了没有：一条也没有就是这条规则在自己仓里空转。
+ok('两份文档里确有续引在同句内借到了出处（一条也没有就是这条规则空转）',
+  contRefs >= 1 && contRefs < refs, `解析 ${refs} 条 · 其中续引借到出处 ${contRefs} 条`);
+
+// 借不到出处的那些不判错、也不静默跳过：数出来写进 README，再由这一条逐处钉住。
+// 新增一条定不了址的引用会把闸打红，而不是让覆盖面悄悄缩水。
+{
+  const gapClaims = [...docText.matchAll(/无法定址 (\d+) 处/g)].map((x) => Number(x[1]));
+  ok('文档里每一处「无法定址 N 处」都等于闸数到的借不到出处的续引（且文档确实写了这个数）',
+    Number.isInteger(unaddressed) && gapClaims.length >= 1 && gapClaims.every((c) => c === unaddressed),
+    `闸数到 ${unaddressed} · 文档写了 ${gapClaims.length} 处：${[...new Set(gapClaims)].join('/')}`);
+}
+
+// 续引的七把控制腿，全在内存里、盘上的文档一个字不动：
+// 借到 / 句尾墙 / 软换行仍算同一句 / 空行与新标题截断 / 借来的路径喂进边界检查 /
+// 正文里提到的文件名不是出处 / 同一句改写成完整引用就读得回来。
+const cG = audit('`HEADROOM`（`tools/balance.mjs:61`）、`HIT_GATE`（`:47`）');
+ok('续引在同句内借到出处，并带上自己那一格的指认',
+  cG.refs.length === 2 && cG.refs.filter((r) => r.cont).length === 1 && cG.unaddressed === 0 && cG.bad.length === 0 &&
+  cG.refs.every((r) => r.path === 'tools/balance.mjs'),
+  `refs=${cG.refs.length} 红=${cG.bad.join(' | ') || '无'} 借不到=${cG.unaddressed}`);
+const cW = audit('`HEADROOM`（`tools/balance.mjs:61`）。\n`HIT_GATE`（`:47`）');
+ok('句号把借的窗口关上：下一句的续引不许挂到上一句的出处上',
+  cW.refs.length === 1 && cW.unaddressed === 1, `refs=${cW.refs.length} 借不到=${cW.unaddressed}`);
+const cP = audit('`HEADROOM`（`tools/balance.mjs:61`）、\n`HIT_GATE`（`:47`）');
+ok('软换行不算换句：同一句折行后续引照样借得到',
+  cP.refs.length === 2 && cP.unaddressed === 0, `refs=${cP.refs.length} 借不到=${cP.unaddressed}`);
+const cH = audit('`HEADROOM`（`tools/balance.mjs:61`）\n\n## 续\n`HIT_GATE`（`:47`）');
+ok('空行与新标题同样截断这次借', cH.refs.length === 1 && cH.unaddressed === 1,
+  `refs=${cH.refs.length} 借不到=${cH.unaddressed}`);
+const cB = audit('`HEADROOM`（`tools/balance.mjs:61`）、`HIT_GATE`（`:99999`）');
+ok('借来的路径喂进边界检查：续引写一个越界的行号必须红，并点名被借的那个文件',
+  cB.bad.length === 1 && cB.bad[0].includes('tools/balance.mjs') && cB.bad[0].includes('越界'),
+  cB.bad.join(' | ') || '（没红）');
+const cF = audit('这条常量住在 `balance.mjs` 里，`HIT_GATE`（`:47`）');
+ok('正文里提到的文件名不是出处：这种写法必须算借不到，而不是在错的文件上判绿',
+  cF.refs.length === 0 && cF.unaddressed === 1, `refs=${cF.refs.length} 借不到=${cF.unaddressed}`);
+const cC = audit('这条常量住在 `balance.mjs` 里，`HIT_GATE`（`tools/balance.mjs:47`）');
+ok('同一句改写成完整引用就读得回来：上一条红的是写法，不是解析器漏了这一句',
+  cC.refs.length === 1 && cC.unaddressed === 0 && cC.bad.length === 0,
+  `refs=${cC.refs.length} 借不到=${cC.unaddressed} 红=${cC.bad.join(' | ') || '无'}`);
 
 // 反空转：七把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错。
 const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）');
