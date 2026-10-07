@@ -121,6 +121,18 @@ function parseRefs(text, orphans = null) {
   return out;
 }
 
+// 认整词，不认子串：`MARKER` 坐在声明 `MARKER_CHAR` 的那一行上也算"出现过"，一个短名字会
+// "出现在"任何碰巧含它的标识符里——子串口径因此比它替掉的那份手抄锚点表**更弱**，于是一次真的漂
+// 会被读成绿。名字两侧再是标识符字符（字母、数字、`_`、`$`）就不是这个标识符本身。
+// 缓存是因为一份文档要拿同一个名字核上百次。
+const wordCache = new Map();
+const hasWord = (text, name) => {
+  if (!wordCache.has(name)) {
+    wordCache.set(name, new RegExp('(^|[^A-Za-z0-9_$])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z0-9_$])'));
+  }
+  return wordCache.get(name).test(text);
+};
+
 function audit(text) {
   const bad = [];
   const orphans = [];
@@ -139,7 +151,7 @@ function audit(text) {
       bad.push(`${r.path}:${r.from}-${r.to} 那几行整段是空行`);
       continue;
     }
-    if (r.anchor && !lines.slice(r.from - 1, r.to).join('\n').includes(r.anchor)) {
+    if (r.anchor && !hasWord(lines.slice(r.from - 1, r.to).join('\n'), r.anchor)) {
       bad.push(`${r.path}:${r.from}-${r.to} 那几行里没有 ${r.anchor}`);
     }
   }
@@ -227,15 +239,18 @@ ok('同一句改写成完整引用就读得回来：上一条红的是写法，�
   cC.refs.length === 1 && cC.unaddressed === 0 && cC.bad.length === 0,
   `refs=${cC.refs.length} 借不到=${cC.unaddressed} 红=${cC.bad.join(' | ') || '无'}`);
 
-// 反空转：八把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错、
-// 以及一条没有锚点却整段落在空行上的。第八把那行的行号是当场从 js/main.js 数出来的空行，不手抄，
+// 反空转：九把假引用必须一把不落——文件不存在、行号越界、四种指认写法各自的锚点漂、行数写错、
+// 一条没有锚点却整段落在空行上的、以及一把**前缀**（名字只是被指那行里某个标识符的前缀，整词不算
+// 命中而子串算）。第八把那行的行号是当场从 js/main.js 数出来的空行，不手抄，
 // 所以源码怎么漂它都还指着真空行；blankAt 自己数不到空行时这条算红，而不是少一把。
+// 第九把是本腿整词口径的牙：它哪天退回 .includes，所有候选都会"过"，红的正是这一把少掉。
 const mainLines = linesOf('js/main.js') || [];
 let blankAt = 0;
 for (let i = 1; i < mainLines.length; i++) if (String(mainLines[i]).trim() === '') { blankAt = i + 1; break; }
-const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）、' + `\`js/main.js:${blankAt}\``);
-ok('假引用八把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂 / 函数调用形式锚点漂 / 没有锚点却落在空行上）',
-  blankAt > 0 && fake.bad.length === 8, `空行靶子在第 ${blankAt} 行 · ${fake.bad.join(' | ')}`);
+const fake = audit('出处 `js/nope.js:1`、`js/main.js:99999`、`elapsedMs` 在 `js/main.js:1`、`package.json`（999 行）、`js/main.js:1`（`elapsedMs`）、`js/main.js:1` 的 `elapsedMs`、`js/main.js:1`（`Math.max(2, Math.ceil(0.5))`）、' +
+  `\`js/main.js:${blankAt}\`` + '、`js/engine/counter.js:33`（`MARKER`）');
+ok('假引用九把全被抓到（不存在 / 越界 / 后向锚点漂 / 行数错 / 前向括号锚点漂 / 「的」锚点漂 / 函数调用形式锚点漂 / 没有锚点却落在空行上 / 前缀不算整词）',
+  blankAt > 0 && fake.bad.length === 9, `空行靶子在第 ${blankAt} 行 · ${fake.bad.join(' | ')}`);
 
 // 阳性对照：三种指认写法与真行数必须判绿，否则上一条的"红"可能只是解析器自己坏了。
 const pkgLines = linesOf('package.json');
