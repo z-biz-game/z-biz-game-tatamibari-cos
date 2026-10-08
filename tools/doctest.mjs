@@ -42,7 +42,7 @@ const linesOf = (() => {
   };
 })();
 
-const PATH_SRC = '[\\w./-]+?\\.(?:js|mjs|cjs|sh|json|yml|html|css)';
+const PATH_SRC = '[\\w./-]+?\\.[A-Za-z][A-Za-z0-9]{0,11}'; // 后缀不许写死：写死成某一族的语言时，本腿在那种仓里是哑的，而「0 条引用」读起来和「全核过」一模一样
 const CITE = new RegExp('^(' + PATH_SRC + '):([0-9]+(?:[,-][0-9]+)*)$');
 // 续引：完整引用后面只写行号——`tools/balance.mjs:61`（`HEADROOM`）之后再写一串数字。本仓文档里
 // 这种写法不少，而这条腿以前只认 `path:NN`：它报"全部指到实处"时看的其实是文档的一部分。
