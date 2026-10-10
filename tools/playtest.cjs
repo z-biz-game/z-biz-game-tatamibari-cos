@@ -133,10 +133,10 @@ async function main() {
     }, sessionId);
   }
 
-  const evaluate = async (expression) => {
+  const evaluate = async (expression, userGesture = false) => {
     const r = await cdp.send(
       'Runtime.evaluate',
-      { expression, returnByValue: true, awaitPromise: true, timeout: 900000 },
+      { expression, returnByValue: true, awaitPromise: true, timeout: 900000, userGesture },
       sessionId
     );
     if (r.exceptionDetails) {
@@ -171,6 +171,15 @@ async function main() {
     // only pretending to be in the background.
     await evaluate(`Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
       Object.defineProperty(document,'visibilityState',{get:()=>'visible',configurable:true});'ok'`);
+    // The fullscreen leg needs two things the game does not control: requestFullscreen() is
+    // refused without transient user activation (hence userGesture on the scenario call), and a
+    // tab that is not topmost reports document.hasFocus() === false, which Chrome also refuses.
+    // USER_GESTURE=0 withholds that token on purpose — it is the only way to reach the
+    // refused-fullscreen branch of the pause scenario on a machine that would otherwise be granted
+    // it. A branch nobody can switch on is a branch that never runs, and never gets checked.
+    const gesture = process.env.USER_GESTURE !== '0';
+    await cdp.send('Page.bringToFront', {}, sessionId);
+    await sleep(120);
     const out = await evaluate(`(async()=>{
       if (!window.__scn) throw new Error('scenarios.js never installed');
       const fn = window.__scn[${JSON.stringify(arg)}];
@@ -179,7 +188,7 @@ async function main() {
       }
       const r = await fn();
       return JSON.stringify(r);
-    })()`);
+    })()`, gesture);
     // Console noise first, machine-readable line last: the parser in verify.sh takes the final
     // RESULT line, so a stray '{' in a log cannot hijack the report.
     if (logs.length) console.error(logs.slice(-40).join('\n'));

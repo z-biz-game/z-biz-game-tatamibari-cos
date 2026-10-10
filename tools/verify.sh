@@ -36,7 +36,7 @@ CHROME=${CHROME_BIN:-}
 #   save→resume 是一对**跨刷新**的戏 —— playtest.cjs 每个场景都重新注入并 navigate 一次，
 #   后一段读的是磁盘上的存档而不是内存里的残骸，所以这两段之间不许插别的场景；
 #   narrow 那一段逐字断言视口，必须拿自己的 VIEWPORT 跑（见下面那两行 VP_）。
-SCENARIOS_DONE="first play undo hint clash win save resume layout narrow"
+SCENARIOS_DONE="first play undo hint clash win save resume layout narrow pause"
 # narrow 那条场景断言 `${innerWidth},${innerHeight}` === '390,844'（tools/scenarios.js 里 narrow 的第一行），
 # 靠的是 playtest.cjs 的 VIEWPORT —— 它在第一次导航**之前**下 Emulation.setDeviceMetricsOverride。
 # 每一段都显式带上视口，包括默认那一档：override 挂在 target 上，不清就等于留给下一段，
@@ -99,7 +99,7 @@ if [ "$CUSTOM" = 0 ]; then
   echo "  两种形态各用一个端口：origin 不同 → localStorage 各一套，前缀那一跑才是"换了文档目录"，不是"重装一遍""
 else
   CDP=${CDP_PORT:-9366}
-  echo "BASE_URL given → 只跑部署件这一种形态，本脚本不起任何服务（CDP $CDP）"
+  echo "BASE_URL given → 只跑部署件这一种形态，本脚本不起任何服务（CDP ${CDP}）"
 fi
 echo "logs: $LOGDIR"
 
@@ -313,7 +313,7 @@ preflight() {
   local served
   served=$(curl -fsS -m 8 "$base" 2>/dev/null) || { echo "  首页取不到：$base" >&2; return 1; }
   case "$served" in *js/main.js*) ;; *) echo "  $base 上发的不是本仓的首页（正文里找不到 js/main.js）" >&2; return 1 ;; esac
-  case "$served" in *"$FEATURE"*) ;; *) echo "  $base 在发别的应用：首页正文里找不到「$FEATURE」" >&2; return 1 ;; esac
+  case "$served" in *"$FEATURE"*) ;; *) echo "  $base 在发别的应用：首页正文里找不到「${FEATURE}」" >&2; return 1 ;; esac
   for rel in $PREFLIGHT_RELS; do
     want=$(wc -c < "$HERE/$rel" | tr -d ' ')
     [ -n "$want" ] || { echo "  $rel 在磁盘上读不到，闸没有可对的基准" >&2; return 1; }
@@ -321,11 +321,11 @@ preflight() {
     got=$(curl -sS -m 8 -o "$f" -w '%{http_code} %{size_download}' "$base$rel" 2>/dev/null) || {
       echo "  $rel 取不回来：$base$rel" >&2; return 1; }
     case "$got" in "200 $want") ;; *)
-      echo "  $rel 不对味：$base$rel 回 $got，磁盘上的这份是 200 $want 字节" >&2
+      echo "  $rel 不对味：$base$rel 回 ${got}，磁盘上的这份是 200 $want 字节" >&2
       echo "  前两行到手内容：$(head -c 160 "$f" | tr '\n' ' ')" >&2
       return 1 ;; esac
   done
-  echo "  预检：首页含「$FEATURE」与 js/main.js · $(echo $PREFLIGHT_RELS | wc -w | tr -d ' ') 条真实模块路径按字节对上磁盘（main / ui/game / engine/generate / engine/pencil / render/board / store / css/game）"
+  echo "  预检：首页含「${FEATURE}」与 js/main.js · $(echo $PREFLIGHT_RELS | wc -w | tr -d ' ') 条真实模块路径按字节对上磁盘（main / ui/game / engine/generate / engine/pencil / render/board / store / css/game）"
   return 0
 }
 
@@ -432,5 +432,10 @@ done
 
 kill $WD 2>/dev/null
 # 只报这一跑真的跑过的形态：SHAPES=root / BASE_URL= 那种单形态跑，旧文案照样打印"两种 URL 形态"。
+# 部署集闸：ci.yml 跑这两步、本地整闸以前一次都不跑。缺这一步就是「本地全绿、线上 404 自己的
+# manifest / sw.js / 图标」这一整类坏法。它不碰 Chrome，也不读页面，纯查产物。
+echo "=== deploy-set ==="
+node tools/deploy-set.mjs || FAILED=1
+node tools/deploy-set-selftest.mjs || FAILED=1
 [ $FAILED -eq 0 ] && echo "=== ALL GREEN（这一跑实际覆盖的 URL 形态：${RAN# }）===" || echo "=== FAILURES ABOVE ==="
 exit $FAILED

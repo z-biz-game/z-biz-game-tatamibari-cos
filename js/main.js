@@ -120,6 +120,44 @@ const fmtTime = (ms) => {
  */
 const clock = () => runMs + (runFrom ? Date.now() - runFrom : 0);
 
+// ── 暂停 ────────────────────────────────────────────────────────────────
+// 暂停是**真冻结时钟**，不是挂个标签：暂停那一瞬把还在跑的那一段折进 baseMs，
+// 再把 startedAt 清零 —— clock() 于是恒等于 baseMs，一毫秒都不再涨。
+// 恢复时重新盖上 startedAt，时钟从冻结处续走；因为 baseMs 已经是累计值，
+// 恢复后第一帧的 dt 就是一个正常帧间隔，不会把暂停那几秒一次性吃掉（不跳步）。
+let paused = false;
+function setPaused(next) {
+  next = !!next;
+  if (paused === next) return paused;
+  if (next) {
+    baseMs = clock();     // 先结算到此刻，再停表
+    startedAt = 0;
+    // 拖到一半按下暂停：这一笔整笔作废。留着 drag，pointermove 还在攒边、抬手就落子，
+    // 锁盘就漏了这道缝——而漏进去的那一手恰好发生在"表已经停了"的窗口里。
+    if (drag) { drag = null; hidePreview(); paint(); }
+  } else {
+    startedAt = Date.now();
+  }
+  paused = next;
+  paintPause();
+  return paused;
+}
+function paintPause() {
+  const btn = document.getElementById('btn-pause');
+  if (!btn) return;
+  btn.textContent = paused ? '继续' : '暂停';
+  btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+}
+
+// 暂停期间盘面不接受操作。榜按 ms 排名（js/store.js:140 `return a.ms < b.ms;`），只停表不锁盘
+// 等于把暂停做成免费的思考时间：想完整盘再按继续，交上去的用时里少掉那几秒——榜还在，榜的含义
+// 已经被改写。放行的只有解暂停那颗键、「换一局」（新局一定在走）和「回选档」。
+function blockedWhilePaused(what) {
+  if (!paused || !game) return false;
+  setLine(`${what}被暂停挡住了：按 P 或 空格 继续，暂停中盘面不接受操作。`, 'bad');
+  return true;
+}
+
 /** 日课 key：本地日期的 ISO 形。"今天"就是玩家所在的那个今天，所以不套 UTC。 */
 function dateKey(d = new Date()) {
   const y = d.getFullYear();
@@ -377,11 +415,10 @@ function adopt(next, { daily = false, seedUsed = null, resumeFrom = null } = {})
   game = next;
   game.daily = resumeFrom ? !!resumeFrom.daily : daily;
   game.seedUsed = resumeFrom ? resumeFrom.seed : (seedUsed || next.puzzle.seed);
-  runMs = resumeFrom ? resumeFrom.elapsedMs || 0 : 0;
-  runFrom = 0;
-  paused = true;
-  applyPause(false);
-  fx.reset();
+  baseMs = resumeFrom ? resumeFrom.elapsedMs || 0 : 0;
+  startedAt = Date.now();
+  // 换一局＝新的一局，新局一定在走：带着上一局的 paused=true 进来会让时钟和按钮各说各话
+  if (paused) { paused = false; paintPause(); }
   if (resumeFrom && !game.load(resumeFrom.ink)) {
     store.clearResume();
     game = null;
@@ -609,7 +646,7 @@ function blocked() {
 }
 
 function setMode(value) {
-  if (!game || blocked()) return;
+  if (!game || blockedWhilePaused('切工具')) return;
   game.mode = value;
   renderTools();
   paint();
@@ -617,7 +654,7 @@ function setMode(value) {
 }
 
 function useHint() {
-  if (!game || game.status === 'won' || blocked()) return null;
+  if (!game || game.status === 'won' || blockedWhilePaused('那一次提示')) return null;
   const h = game.hint();
   if (!h) return null;
   if (h.conflict) {
@@ -641,7 +678,7 @@ function useHint() {
 }
 
 function undo() {
-  if (!game || blocked()) return null;
+  if (!game || blockedWhilePaused('撤销')) return null;
   // 赢了就把这盘冻住：`Game.undo()` 自己没有 status 守卫（它只管退栈），所以放任它的话，
   // 玩家能在遮罩还挂着的时候把最后一条边擦回未定 —— 于是 `#win-veil` 说"铺满了"而
   // `state().status` 已经变回 'playing'，再走一次 afterStep 还会把同一盘往 totals 里记第二遍。
@@ -661,7 +698,7 @@ function undo() {
 }
 
 function prune() {
-  if (!game || blocked()) return null;
+  if (!game || blockedWhilePaused('补那一眼墙')) return null;
   const step = game.prune();
   if (!step) {
     setLine('这一眼墙已经补过了——空盘上那条 R1 特例没有新的可写。');
@@ -768,11 +805,12 @@ function pushSeg(hit) {
   drag.segs.push(hit);
 }
 
-function onDown(clientX, clientY, pointerId) {
-  if (!game || game.status === 'won' || blocked()) return false;
-  const hit = board.hitEdge(clientX, clientY);
-  if (!hit) return false;
-  unlockAudio();
+el.canvas.addEventListener('pointerdown', (ev) => {
+  if (!game || game.status === 'won' || view.generating) return;
+  if (blockedWhilePaused('点那条边')) return;
+  const hit = board.hitEdge(ev.clientX, ev.clientY);
+  if (!hit) return;
+  ev.preventDefault();
   try {
     el.canvas.setPointerCapture(pointerId);
   } catch {
@@ -1008,6 +1046,10 @@ window.addEventListener('keydown', (ev) => {
     ev.preventDefault();
     return;
   }
+  // 暂停锁盘挂在这一层，而不是只包 stroke/tap：1/2/3/m 改工具态、h/g/z 直接动盘，它们各走各的
+  // 函数，逐个包会漏掉下一个新加的键。放行的只有解暂停那颗键、「换一局」（新局一定在走，见
+  // adopt()），以及上面已经 return 掉的 Escape（回选档不改这盘的盘面）。
+  if (paused && !(k === 'p' || k === ' ' || k === 'n')) { blockedWhilePaused('那一键'); ev.preventDefault(); return; }
   if (k === '1') setMode(WALL);
   else if (k === '2') setMode(SAME);
   else if (k === '3') setMode(P_UNKNOWN);
@@ -1022,6 +1064,10 @@ window.addEventListener('keydown', (ev) => {
   else if (k === 'h') useHint();
   else if (k === 'g') prune();
   else if (k === 'z') undo();
+  else if (k === 'p' || k === 'P' || k === ' ' || ev.code === 'Space') {
+    ev.preventDefault();
+    setPaused(!paused);
+  }
   else if (k === 'n' && game && view.name === 'game') again();
   else return;
   ev.preventDefault();
@@ -1175,32 +1221,38 @@ window.tatamibari = {
   },
   /** 落笔的编程等价物：走的正是指针抬起时那一句 game.stroke()。 */
   stroke(segs, value) {
-    if (!game) return null;
+    if (!game || blockedWhilePaused('那一笔')) return null;
     const step = game.stroke(segs, value === undefined ? game.mode : value);
     if (step) afterStep();
     return step;
   },
   tap(i, dir, value) {
-    if (!game) return null;
+    if (!game || blockedWhilePaused('那一下')) return null;
     const step = game.tap(i, dir, value === undefined ? game.mode : value);
     if (step) afterStep();
     return step;
   },
   /** 把那条序列一路走完（每一下都经 hint()，所以次数照扣）——"零猜测"那一条断言用它。 */
   solveWithLogic() {
-    if (!game) return null;
+    if (!game || blockedWhilePaused('整盘推导')) return null;
     const r = game.solveWithLogic();
     syncAll();
     if (game.status === 'won') onWin();
     return r;
   },
   revealAll() {
-    if (!game || game.status === 'won') return null;
+    if (!game || game.status === 'won' || blockedWhilePaused('摊开整盘')) return null;
     const step = game.revealAll();
     if (step) afterStep();
     return step;
   },
   elapsed: clock,
+  get paused() {
+    return paused;
+  },
+  setPaused,
+  /** 正在推进的那个数（毫秒）。暂停时它必须一毫秒不动 —— 这就是"真冻结"的判据。 */
+  simClock: () => clock(),
   dateKey,
   state: () => (game ? {
     ...game.state(),
@@ -1226,3 +1278,92 @@ window.tatamibari = {
   store,
   engine: { TIERS, UNSHIPPABLE, makePuzzle, Game, Store, SAVE_KEY },
 };
+
+// ---- 暂停按钮（#btn-pause，与 P / Space 同一个入口）----
+(function bindPause() {
+  const btn = document.getElementById('btn-pause');
+  if (!btn) return;   // HUD 里没有这个 id 就不装，别让量具算出"已实现"的假绿
+  btn.addEventListener('click', () => setPaused(!paused));
+})();
+
+// ---- 全屏开关（#btn-fullscreen）----
+// 绑的是本页 HUD 上真实存在的那个按钮。全屏最常见的假实现就是引用一个并不存在的
+// id：点下去什么也不会发生，量具却算它"已实现"。所以这里找不到按钮就直接不装。
+(function bindFullscreen() {
+  const btn = document.getElementById('btn-fullscreen');
+  if (!btn) return;
+  const root = document.documentElement;
+  // 只做特性检测，不嗅探 UA：iOS Safari 是 webkitRequestFullscreen，老 Edge 是 ms 前缀，
+  // 而 UA 字符串随时会改。"有没有这个能力"是查出来的，不是猜出来的。
+  const req = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+  const current = () => document.fullscreenElement || document.webkitFullscreenElement
+    || document.msFullscreenElement || null;
+
+  // 不支持也要给个说法：只把按钮灰掉而不解释，玩家会以为这功能没做完。
+  // supported 这枚标记不能省：下面 sync() 每次都会重写 title，不挡住的话，装的时候刚写
+  // 进去的人话原因会被随后的 sync() 立刻抹成"全屏 (F)"——禁用就变成一句没有理由的禁用。
+  let supported = !!req;
+  const unsupported = () => {
+    supported = false;
+    btn.disabled = true;
+    btn.title = '这个浏览器不提供元素全屏（iOS Safari 请用「添加到主屏幕」独立打开）';
+  };
+  if (!req) unsupported();
+
+  // fullscreen 返回 Promise，被拒时必须吃掉：iOS Safari 对多数非 video 元素直接拒绝，
+  // 让这个 rejection 冒泡出去会变成一条未捕获错误，整局游戏跟着挂。
+  //
+  // 但**任何** rejection 都不得当成"这台机器不行"。真正的"没有这能力"在上面的
+  // `if (!req)` 已经判完了；能走到这里就说明能力是有的，只是**这一次**没成：
+  // 没有瞬时用户激活、iframe 的 allow 里缺 fullscreen、上一次请求还没结束导致的
+  // AbortError、受限/headless 环境下的 TypeError……这些过一会儿再点就好。
+  //
+  // 上一版只把 NotAllowedError 排除在外，AbortError 与 TypeError 照样走进
+  // unsupported()，于是自动化环境里一次被拒就把一颗好按钮**永久禁掉**，还对着玩家
+  // 谎称"这个浏览器不提供元素全屏"。这与它想修的 NotAllowedError 是同一个错，
+  // 只是换了错误名——所以这里改成一律不禁用，交给玩家下一次点击重试。
+  const settle = (p) => { if (p && p.catch) p.catch(() => {}); };
+
+  // 进出都能走：已经全屏时这次调用是退出，不是"再进一次"。
+  function toggle() {
+    try {
+      if (current()) {
+        if (exit) settle(exit.call(document));
+      } else if (req) {
+        settle(req.call(root));
+      } else {
+        unsupported();
+      }
+    } catch (e) {
+      // 同 settle()：req 存在就说明能力在，不能因为这一次抛错就永久禁掉一颗好按钮
+      // 并谎称不支持。保持可点，让玩家重试。
+    }
+  }
+
+  // Esc 和系统手势退出都不经过我们的代码，按钮状态只能靠 fullscreenchange 回写，
+  // 否则用户已经退出、HUD 还停在"退出全屏"，下一次点击反而会重新进全屏。
+  function sync() {
+    const on = !!current();
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? "退出全屏" : "全屏";
+    if (supported) btn.title = "全屏" + '（F）';
+    const body = document.body;
+    if (body && body.classList) body.classList.toggle('fullscreen', on);
+  }
+
+  btn.addEventListener('click', toggle);
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'f' && ev.key !== 'F') return;
+    const t = ev.target;
+    // 盘号 / 种子这类输入框里打字不能触发全屏，否则玩家输 seed 输到一半屏幕没了。
+    if (t && /input|textarea|select/i.test(t.tagName || '')) return;
+    if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    ev.preventDefault();
+    toggle();
+  });
+  window.addEventListener('fullscreenchange', sync);
+  window.addEventListener('webkitfullscreenchange', sync);
+  window.addEventListener('MSFullscreenChange', sync);
+  sync();
+})();
