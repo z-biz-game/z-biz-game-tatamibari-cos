@@ -152,7 +152,7 @@ npm run check                                     → 每个源文件 node --che
 node tools/rule-test.mjs                          → 65 条：合法盘定义与它的两条独立读数
 node tools/counter-test.mjs                       → 74 条：两套穷举互相对答案（含"数到 2 就停"的语义）
 node tools/pencil-test.mjs                        → 206 条：A0 分层 + 底座对暴力 + 每条规则单独跑 + 真值逐条审计 + 强度差
-npm run test:docs                                 → 本仓两份 *.md 里的 文件:行号 逐条读回来（解析 119 条、无法定址 0 处；这两个数由它自己数、再自对账。原先那 6 处借不到出处的裸续引本轮各自补上了它自己的文件名，补完它们也同时挂上了锚点）
+npm run test:docs                                 → 本仓各份 *.md 里的 文件:行号 逐条读回来（解析 175 条、无法定址 0 处；这两个数由它自己数、再自对账。原先那 6 处借不到出处的裸续引本轮各自补上了它自己的文件名，补完它们也同时挂上了锚点)
 SAMPLES=24 node tools/balance.mjs                 → 五档阶梯、两条承诺、极小性抽样、复解一致、UNSHIPPABLE 重量，退出码 0
 bash tools/verify.sh                              → node 夹具 3/3 + 两种 URL 形态各 11 个场景 · 393 checks · 0 failed（2026-10-21：root 20 s · prefix 18 s）
 ```
