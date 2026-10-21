@@ -27,7 +27,7 @@
               title="静音 / 解除静音（M）">
         <img src="assets/ui/sound-on.png" alt="" width="24" height="24" />
       </button>
-      <button id="btn-fullscreen" class="icon-btn" type="button" aria-label="全屏" aria-pressed="false"
+      <button id="btn-fullscreen-top" class="icon-btn" type="button" aria-label="全屏" aria-pressed="false"
               title="全屏 / 退出全屏（F）">
         <img src="assets/ui/fullscreen.png" alt="" width="24" height="24" />
       </button>
@@ -103,8 +103,9 @@
         </div>
         <div class="hud-right">
           <span class="pill"><span class="tag">用时</span><b id="hud-clock">00:00</b></span>
-      <button id="btn-pause" class="tool-btn" type="button" aria-pressed="false" title="暂停 / 继续 (P 或 Space)">暂停</button>
-      <button id="btn-fullscreen" class="tool-btn" type="button" aria-pressed="false" title="全屏（F）">全屏</button></div>
+          <button id="btn-pause" class="tool-btn" type="button" aria-pressed="false" title="暂停 / 继续 (P 或 Space)"><img src="assets/ui/pause.png" alt="" width="18" height="18" /><span id="pause-label">暂停</span></button>
+          <button id="btn-fullscreen" class="tool-btn" type="button" aria-pressed="false" title="全屏（F）">全屏</button>
+        </div>
       </div>
 
       <div class="hud">
@@ -173,9 +174,8 @@
         </div>
         <span class="spacer"></span>
         <div class="tool-group" role="group" aria-label="这盘">
-          <button id="btn-pause" class="tool-btn" type="button" aria-pressed="false" title="暂停 / 继续（空格或 P）">
-            <img src="assets/ui/pause.png" alt="" width="18" height="18" /><span id="pause-label">暂停</span>
-          </button>
+          <!-- 暂停那颗搬到了 HUD 右上角（#btn-pause）：并线前这里也有一颗，两处同一个 id，
+               getElementById 只认得先出现的那颗，这颗于是成了按了没反应的死按钮。 -->
           <button id="btn-new" class="tool-btn" type="button">换一局</button>
           <button id="btn-menu" class="tool-btn" type="button">回选档</button>
         </div>
@@ -239,6 +239,5 @@
 </div>
 
 <script type="module" src="js/main.js"></script>
-  <script src="js/sw-register.js"></script>
 </body>
 </html>

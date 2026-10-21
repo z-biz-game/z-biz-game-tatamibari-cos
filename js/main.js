@@ -93,6 +93,9 @@ let drag = null;
 let pendingResume = null;
 let lastFrame = 0;    // rAF 的上一帧时间戳（对拍脚本喂的是虚拟时长，不是墙钟）
 let rafId = 0;
+// 全屏只有一份实现（文件末尾那个 bindFullscreen），它把 toggle 交到这枚变量上；
+// 导出面（window.tatamibari.toggleFullscreen）转手调它，不再另写一份。
+let fullscreenToggle = null;
 
 /** 系统"减少动效"偏好。读不到 matchMedia 就当没这个偏好（宁可动，也别静默关掉反馈）。 */
 function prefersReducedMotion() {
@@ -121,33 +124,17 @@ const fmtTime = (ms) => {
 const clock = () => runMs + (runFrom ? Date.now() - runFrom : 0);
 
 // ── 暂停 ────────────────────────────────────────────────────────────────
-// 暂停是**真冻结时钟**，不是挂个标签：暂停那一瞬把还在跑的那一段折进 baseMs，
-// 再把 startedAt 清零 —— clock() 于是恒等于 baseMs，一毫秒都不再涨。
-// 恢复时重新盖上 startedAt，时钟从冻结处续走；因为 baseMs 已经是累计值，
+// 暂停是**真冻结时钟**，不是挂个标签：暂停那一瞬把还在跑的那一段结算进 runMs，
+// 再把 runFrom 清零 —— clock() 于是恒等于 runMs，一毫秒都不再涨。
+// 恢复时重新盖上 runFrom，时钟从冻结处续走；因为 runMs 已经是累计值，
 // 恢复后第一帧的 dt 就是一个正常帧间隔，不会把暂停那几秒一次性吃掉（不跳步）。
-let paused = false;
-function setPaused(next) {
-  next = !!next;
-  if (paused === next) return paused;
-  if (next) {
-    baseMs = clock();     // 先结算到此刻，再停表
-    startedAt = 0;
-    // 拖到一半按下暂停：这一笔整笔作废。留着 drag，pointermove 还在攒边、抬手就落子，
-    // 锁盘就漏了这道缝——而漏进去的那一手恰好发生在"表已经停了"的窗口里。
-    if (drag) { drag = null; hidePreview(); paint(); }
-  } else {
-    startedAt = Date.now();
-  }
-  paused = next;
-  paintPause();
-  return paused;
-}
-function paintPause() {
-  const btn = document.getElementById('btn-pause');
-  if (!btn) return;
-  btn.textContent = paused ? '继续' : '暂停';
-  btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
-}
+//
+// 这一段曾经有两套实现并存：早先那套用 baseMs/startedAt，后来那套换成 runMs/runFrom
+// （runMs 是累计值、runFrom 是"正在跑的那一段"的起点，暂停必须先结算再清零），
+// 两套各留一份 `let paused` —— ES module 里同名顶层声明是 SyntaxError，
+// 模块根本不加载 ⇒ 整局打不开（`npm run check` 会在语法那一步就红）。
+// 留的是后一套（它连着仿真时钟一起冻、恢复不跳步），前一套连同它那两个
+// 根本没声明过的变量（baseMs / startedAt）一起删掉。
 
 // 暂停期间盘面不接受操作。榜按 ms 排名（js/store.js:140 `return a.ms < b.ms;`），只停表不锁盘
 // 等于把暂停做成免费的思考时间：想完整盘再按继续，交上去的用时里少掉那几秒——榜还在，榜的含义
@@ -247,6 +234,11 @@ function applyPause(next) {
     settleRun();
     stopLoop();
     flushResume();
+    // 拖到一半按下暂停：这一笔整笔作废。留着 drag，pointermove 还在攒边、抬手就落子，
+    // 锁盘就漏了这道缝——而漏进去的那一手恰好发生在"表已经停了"的窗口里。
+    // （这一条是早先那套暂停机制独有的行为：它冻结的是 baseMs/startedAt 那条线，
+    //   但同样得把拖拽作废。换成 runMs/runFrom 之后不能顺手丢掉它。）
+    if (drag) { drag = null; hidePreview(); paint(); }
   }
   if (!on && paused) runFrom = Date.now();
   paused = on;
@@ -415,10 +407,13 @@ function adopt(next, { daily = false, seedUsed = null, resumeFrom = null } = {})
   game = next;
   game.daily = resumeFrom ? !!resumeFrom.daily : daily;
   game.seedUsed = resumeFrom ? resumeFrom.seed : (seedUsed || next.puzzle.seed);
-  baseMs = resumeFrom ? resumeFrom.elapsedMs || 0 : 0;
-  startedAt = Date.now();
+  // 计时是累计值 runMs 加上"正在跑的那一段" runFrom：新的一局从 0 起算，
+  // 续档那盘把存档里的用时接上来。
+  runMs = resumeFrom ? resumeFrom.elapsedMs || 0 : 0;
+  runFrom = 0;
   // 换一局＝新的一局，新局一定在走：带着上一局的 paused=true 进来会让时钟和按钮各说各话
-  if (paused) { paused = false; paintPause(); }
+  if (paused) applyPause(false);
+  if (!runFrom) runFrom = Date.now();
   if (resumeFrom && !game.load(resumeFrom.ink)) {
     store.clearResume();
     game = null;
@@ -725,27 +720,6 @@ function restartGame() {
   return fresh;
 }
 
-/** 全屏：拿浏览器给的 promise 回执改按钮态，拿不到（被拒绝/不支持）就照实说。 */
-function toggleFullscreen() {
-  const root = document.documentElement;
-  const on = !!document.fullscreenElement;
-  let p = null;
-  let supported = true;
-  if (!on && root.requestFullscreen) p = root.requestFullscreen();
-  else if (on && document.exitFullscreen) p = document.exitFullscreen();
-  else supported = false;
-  if (p && p.catch) p.catch(() => setLine('浏览器没让这一页进全屏（通常是要更强的用户手势授权）——按钮状态不变。'));
-  if (!supported) setLine('这个环境没有 requestFullscreen：全屏按钮在这儿不做任何事，不假装进了全屏。');
-  sound.play('ui');
-  return !on;
-}
-
-function syncFullscreenLabel() {
-  const on = !!document.fullscreenElement;
-  el.btnFullscreen.setAttribute('aria-pressed', on ? 'true' : 'false');
-  el.btnFullscreen.setAttribute('aria-label', on ? '退出全屏' : '全屏');
-}
-
 function toggleHelp(on) {
   const next = on === undefined ? el.helpVeil.hidden : !!on;
   el.helpVeil.hidden = !next;
@@ -805,12 +779,24 @@ function pushSeg(hit) {
   drag.segs.push(hit);
 }
 
-el.canvas.addEventListener('pointerdown', (ev) => {
-  if (!game || game.status === 'won' || view.generating) return;
-  if (blockedWhilePaused('点那条边')) return;
-  const hit = board.hitEdge(ev.clientX, ev.clientY);
-  if (!hit) return;
-  ev.preventDefault();
+/**
+ * 手指落在一条边上：起笔。
+ *
+ * 这一段曾经是**内联在 addEventListener 里**的一段。后来手势被重构成
+ * onDown / onMove / onUp 三件套（指针、touch 回退、鼠标回退都汇到那一条路径上，
+ * 所以"点中哪条边、写成什么值"不会有第二套口径）。重构时 onDown 被漏掉了，
+ * 只留下这段内联的残骸：它少了 addEventListener 的收尾括号，整个模块直接
+ * SyntaxError ⇒ 整局打不开；它引用的 clientX / clientY 也早就不在这个作用域里了。
+ *
+ * 现在把 onDown 补回来，落笔那几步与重构前逐句一致；签名对齐 onMove / onUp：
+ * 收 (clientX, clientY, pointerId)，回一个"这一下吃下了没有"的布尔
+ * （调用方拿它决定要不要 preventDefault）。
+ */
+function onDown(clientX, clientY, pointerId) {
+  if (!game || !board || game.status === 'won' || view.generating) return false;
+  if (blockedWhilePaused('点那条边')) return false;
+  const hit = board.hitEdge(clientX, clientY);
+  if (!hit) return false;
   try {
     el.canvas.setPointerCapture(pointerId);
   } catch {
@@ -988,10 +974,8 @@ el.btnSound.addEventListener('click', () => {
   unlockAudio();
   toggleSound();
 });
-el.btnFullscreen.addEventListener('click', () => {
-  toggleFullscreen();
-  syncFullscreenLabel();
-});
+// #btn-fullscreen 的点击不在这里绑：全屏只有一份实现（文件末尾的 bindFullscreen），
+// 两处都绑的话一次点击会进出各一次，净效果是"什么都没发生"。
 el.btnHelp.addEventListener('click', () => toggleHelp());
 el.btnHelpClose.addEventListener('click', () => toggleHelp(false));
 
@@ -1022,8 +1006,10 @@ window.addEventListener('keydown', (ev) => {
     return;
   }
   if (k === 'escape') {
-    if (paused) applyPause(false);
-    else if (view.name === 'game') {
+    // 回选档**不改这一盘的盘面**：暂停中也一样——Esc 只把你送回选档页，这一盘仍停在暂停态
+    // （锁的是盘，不是整个界面）。这里原来写的是"暂停中按 Esc 先恢复"，那把 Esc 变成了第二颗
+    // 解暂停键，与下面那句注释（Escape 是锁盘总闸放行的三颗键之一，因为它不改盘面）自相矛盾。
+    if (view.name === 'game') {
       flushResume();
       show('menu');
     }
@@ -1058,15 +1044,16 @@ window.addEventListener('keydown', (ev) => {
   // 这条行为，不是 'm' 这个字母。
   else if (k === 't') cycleMode();
   else if (k === 'm') toggleSound();
-  else if (k === 'f') toggleFullscreen();
   else if (k === 'p') applyPause(view.name === 'game' ? !paused : false);
   else if (k === 'r' && game && view.name === 'game') restartGame();
   else if (k === 'h') useHint();
   else if (k === 'g') prune();
   else if (k === 'z') undo();
+  // P 与空格在上面各自已经 return 掉了（见 1027 与 1046 那两行），这一支走不到；
+  // 留着是为了将来挪动分支时不必重新发明一个暂停入口，所以它指向的是同一个 applyPause。
   else if (k === 'p' || k === 'P' || k === ' ' || ev.code === 'Space') {
     ev.preventDefault();
-    setPaused(!paused);
+    applyPause(view.name === 'game' ? !paused : false);
   }
   else if (k === 'n' && game && view.name === 'game') again();
   else return;
@@ -1075,7 +1062,6 @@ window.addEventListener('keydown', (ev) => {
 
 window.addEventListener('resize', () => layout());
 window.addEventListener('pagehide', flushResume);
-window.addEventListener('fullscreenchange', syncFullscreenLabel);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushResume();
 });
@@ -1133,7 +1119,6 @@ function registerServiceWorker() {
 }
 
 syncSoundLabel(store.muted);
-syncFullscreenLabel();
 el.helpVeil.hidden = true;
 el.pauseVeil.hidden = true;
 const swMode = registerServiceWorker();
@@ -1198,7 +1183,9 @@ window.tatamibari = {
   restartGame,
   toggleSound,
   toggleHelp,
-  toggleFullscreen,
+  // 全屏只有一份实现（下面那个 bindFullscreen），它把 toggle 交到 fullscreenToggle 上；
+  // 这里转一手，导出面上那个名字照旧能用。
+  toggleFullscreen: () => (fullscreenToggle ? fullscreenToggle() : false),
   flushResume,
   resumeSaved,
   daily: (tierKey) => begin(tierKey || (TIERS[1] || TIERS[0]).key, { daily: true }),
@@ -1250,7 +1237,10 @@ window.tatamibari = {
   get paused() {
     return paused;
   },
-  setPaused,
+  // 闸台读的那张脸上的名字叫 setPaused，实现是后一套的 applyPause（真冻结时钟 + 冻盘面）。
+  // 名字保留是为了外面那套量具不必改口径，实现换掉是因为旧那套（baseMs/startedAt）
+  // 冻不住动效、也不认暂停遮罩。
+  setPaused: applyPause,
   /** 正在推进的那个数（毫秒）。暂停时它必须一毫秒不动 —— 这就是"真冻结"的判据。 */
   simClock: () => clock(),
   dateKey,
@@ -1280,18 +1270,22 @@ window.tatamibari = {
 };
 
 // ---- 暂停按钮（#btn-pause，与 P / Space 同一个入口）----
-(function bindPause() {
-  const btn = document.getElementById('btn-pause');
-  if (!btn) return;   // HUD 里没有这个 id 就不装，别让量具算出"已实现"的假绿
-  btn.addEventListener('click', () => setPaused(!paused));
-})();
+// 这里**不再**另绑一个 click：上面 el.btnPause 那一条已经接的是 applyPause，
+// 两处都绑的话一次点击会切两次，净效果是"按了没反应"。
 
 // ---- 全屏开关（#btn-fullscreen）----
 // 绑的是本页 HUD 上真实存在的那个按钮。全屏最常见的假实现就是引用一个并不存在的
 // id：点下去什么也不会发生，量具却算它"已实现"。所以这里找不到按钮就直接不装。
 (function bindFullscreen() {
-  const btn = document.getElementById('btn-fullscreen');
-  if (!btn) return;
+  // 页面上有两颗全屏按钮：对局页 HUD 右上角那颗（#btn-fullscreen，带文字）与顶栏那颗
+  // 全局入口（#btn-fullscreen-top，图标钮）。它们以前**都**叫 #btn-fullscreen，
+  // 于是 getElementById 只认得先出现的那一颗，另一颗成了一颗按了没反应的死按钮；
+  // 现在两处各有各的 id，一起接到这一份实现上。
+  const buttons = [
+    document.getElementById('btn-fullscreen'),
+    document.getElementById('btn-fullscreen-top'),
+  ].filter(Boolean);
+  if (!buttons.length) return;
   const root = document.documentElement;
   // 只做特性检测，不嗅探 UA：iOS Safari 是 webkitRequestFullscreen，老 Edge 是 ms 前缀，
   // 而 UA 字符串随时会改。"有没有这个能力"是查出来的，不是猜出来的。
@@ -1306,8 +1300,10 @@ window.tatamibari = {
   let supported = !!req;
   const unsupported = () => {
     supported = false;
-    btn.disabled = true;
-    btn.title = '这个浏览器不提供元素全屏（iOS Safari 请用「添加到主屏幕」独立打开）';
+    for (const b of buttons) {
+      b.disabled = true;
+      b.title = '这个浏览器不提供元素全屏（iOS Safari 请用「添加到主屏幕」独立打开）';
+    }
   };
   if (!req) unsupported();
 
@@ -1345,14 +1341,19 @@ window.tatamibari = {
   // 否则用户已经退出、HUD 还停在"退出全屏"，下一次点击反而会重新进全屏。
   function sync() {
     const on = !!current();
-    btn.setAttribute('aria-pressed', String(on));
-    btn.textContent = on ? "退出全屏" : "全屏";
-    if (supported) btn.title = "全屏" + '（F）';
+    for (const b of buttons) {
+      b.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-label', on ? '退出全屏' : '全屏');
+      // 顶栏那颗是图标钮（本来就没有文字）：给它塞一句"全屏"会把图标挤歪。
+      // 只有本来就有字的那颗才改文案。
+      if ((b.textContent || '').trim()) b.textContent = on ? "退出全屏" : "全屏";
+      if (supported) b.title = "全屏" + '（F）';
+    }
     const body = document.body;
     if (body && body.classList) body.classList.toggle('fullscreen', on);
   }
 
-  btn.addEventListener('click', toggle);
+  for (const b of buttons) b.addEventListener('click', toggle);
   window.addEventListener('keydown', (ev) => {
     if (ev.key !== 'f' && ev.key !== 'F') return;
     const t = ev.target;
@@ -1365,5 +1366,8 @@ window.tatamibari = {
   window.addEventListener('fullscreenchange', sync);
   window.addEventListener('webkitfullscreenchange', sync);
   window.addEventListener('MSFullscreenChange', sync);
+  // 把 toggle 交出去：导出面（window.tatamibari.toggleFullscreen）调的是这一份，
+  // 外面不要再另写一份全屏实现。
+  fullscreenToggle = toggle;
   sync();
 })();

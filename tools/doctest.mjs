@@ -272,12 +272,12 @@ const comma = audit('`elapsedMs`，`tools/balance.mjs:61`');
 ok('纯标点间隔（`，`）不构成指认：这种写法必须判绿', comma.bad.length === 0 && comma.refs.length === 1,
   comma.bad.join(' | ') + `（refs=${comma.refs.length}）`);
 
-// 这条腿对本仓文档真有牙齿：把日课那条引用挪回它本轮之前真待过的 227（那是 totalsLine 的一行，
-// 在界内、越界检查不会红），只有锚点 `daily` 抓得住。改的是内存里的副本，盘上的文档一个字不动。
+// 这条腿对本仓文档真有牙齿：把日课那条引用挪到隔壁那句 `if (!t) {`（353 行，在界内、
+// 越界检查不会红），只有锚点 `daily` 抓得住。改的是内存里的副本，盘上的文档一个字不动。
 {
-  const needle = '`js/main.js:265`';
+  const needle = '`js/main.js:358`';
   const hits = docText.split(needle).length - 1;
-  const poisoned = docText.replace(needle, '`js/main.js:227`');
+  const poisoned = docText.replace(needle, '`js/main.js:353`');
   const p = audit(poisoned);
   ok('把文档里一条真引用的行号挪歪到隔壁语句，这条腿必须为它变红',
     hits === 1 && p.bad.length >= 1 && p.bad.some((b) => b.includes('daily')),

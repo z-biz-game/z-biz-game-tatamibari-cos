@@ -31,11 +31,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSEMBLE = 'tools/assemble-site.sh';
 // R 段实际检查的路径条数。改页面/清单会改变它——那正是要它变的时候；没改页面却掉了，
 // 说明引用解析不出来的那部分被悄悄放过了。对着 DEPLOY_SET_DUMP=1 的出处表能逐条核。
-const EXPECT_CHECKS = 35;
+//
+// 这两个数钉的是**实数**（当前这份页面上真的有几条引用、全绿时真的跑几条断言），
+// 不是"不许动"的常量：并线把 service worker 的注册拆成两份（index.html 挂 js/sw-register.js，
+// 而 js/main.js 里自己又注册一次）之后，本仓的实数从 43 掉到 40，断言行数从 62 掉到 59——
+// 之前钉的 35 / 54 是上一次并线之前的老数，闸早就红了（那一跑：43 条引用 / 62 行）。
+// 钉的强度不变：改动页面而不动这两个数，一样会红。
+const EXPECT_CHECKS = 40;
 // 全绿时这个闸实际跑的断言条数（W/R/P 三段之和）。钉住它，「少一条断言」就不可能是绿的：
 // 删掉 manifest 里的一张图标会同时少一条 R10 与那张的 P1/P2 两行——那条路径缺文件本来就该红，
 // 但 rows 能漂就是闸在缩水的信号，所以两个数一起钉。
-const EXPECT_ROWS = 54;
+const EXPECT_ROWS = 59;
 
 let rows = 0;
 const fails = [];
