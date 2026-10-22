@@ -169,7 +169,7 @@ hints → moves → ms（`js/store.js:136-141`），所以**这两个数只要�
 "解出来对不上数"的存档比没有存档更坏，因为它会让界面显示一盘和磁盘不同的线。
 
 存档与纪录是两个东西：`resume` 是"这一盘还没下完"，`best[tierKey]` 是"这一档的最好成绩"
-（`submitWin`，`js/store.js:205-214`）。尺寸也得跟档名对得上：`generate()` 的盘是 `(seed, tier)`
+（`js/store.js:221-230` 的 `submitWin`）。尺寸也得跟档名对得上：`generate()` 的盘是 `(seed, tier)`
 的函数，一条说 6×6 而另一条说 4×4 的存档直接丢（`js/store.js:88-92` 的 `tier`）。
 
 浏览器闸把 `save` 与 `resume` 排成**相邻的两个场景**（`tools/verify.sh:35-38` 的顺序注释），因为

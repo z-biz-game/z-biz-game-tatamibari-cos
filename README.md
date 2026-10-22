@@ -152,7 +152,7 @@ npm run check                                     → 每个源文件 node --che
 node tools/rule-test.mjs                          → 65 条：合法盘定义与它的两条独立读数
 node tools/counter-test.mjs                       → 74 条：两套穷举互相对答案（含"数到 2 就停"的语义）
 node tools/pencil-test.mjs                        → 206 条：A0 分层 + 底座对暴力 + 每条规则单独跑 + 真值逐条审计 + 强度差
-npm run test:docs                                 → 本仓各份 *.md 里的 文件:行号 逐条读回来（解析 175 条、无法定址 0 处；这两个数由它自己数、再自对账。原先那 6 处借不到出处的裸续引本轮各自补上了它自己的文件名，补完它们也同时挂上了锚点)
+npm run test:docs                                 → 本仓各份 *.md 里的 文件:行号 逐条读回来（解析 176 条、无法定址 0 处；这两个数由它自己数、再自对账。原先那 6 处借不到出处的裸续引本轮各自补上了它自己的文件名，补完它们也同时挂上了锚点)
 SAMPLES=24 node tools/balance.mjs                 → 五档阶梯、两条承诺、极小性抽样、复解一致、UNSHIPPABLE 重量，退出码 0
 bash tools/verify.sh                              → node 夹具 3/3 + 两种 URL 形态各 11 个场景 · 393 checks · 0 failed（2026-10-21：root 20 s · prefix 18 s）
 ```
@@ -272,3 +272,12 @@ X13 内联位图谎报尺寸——只在有靶子时下：X11/X12 要页面上�
 ## 在线试玩
 
 <https://z-biz-game.github.io/z-biz-game-tatamibari-cos/>（`main` 分支推送即自动部署）
+
+## 本轮收的一笔：逗号式把一处指错方法整段藏了
+
+DESIGN 里那句「`best[tierKey]` 是这一档的最好成绩」原先写成「名字，文件:行号」的逗号式，指的是
+`js/store.js` 的 205-214。逗号在这台闸上不绑锚点，所以那十行只过了"落在真实行数内、不整段是空行"
+两道检查——而那几行其实是**另一个方法**的存档体（`moves` / `hints` / `prunes` / `savedAt` 那一堆），
+`submitWin` 的定义在 221 起。改成「`js/store.js:221-230` 的 `submitWin`」之后锚点挂上，名字当场按整词
+判过，本闸项数没动（18 项，0 失败）。这条腿的红从来不是"文案漂了"，而是"那片纸从没被读过"——
+读到了才发现指错了方法。
