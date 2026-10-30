@@ -33,15 +33,16 @@ const ASSEMBLE = 'tools/assemble-site.sh';
 // 说明引用解析不出来的那部分被悄悄放过了。对着 DEPLOY_SET_DUMP=1 的出处表能逐条核。
 //
 // 这两个数钉的是**实数**（当前这份页面上真的有几条引用、全绿时真的跑几条断言），
-// 不是"不许动"的常量：并线把 service worker 的注册拆成两份（index.html 挂 js/sw-register.js，
-// 而 js/main.js 里自己又注册一次）之后，本仓的实数从 43 掉到 40，断言行数从 62 掉到 59——
-// 之前钉的 35 / 54 是上一次并线之前的老数，闸早就红了（那一跑：43 条引用 / 62 行）。
+// 不是"不许动"的常量：并线把 service worker 的注册拆成两份之后，本仓的实数一度钉在
+// 40 / 59；此后页面又挂上了 css/studio.css 与 js/haptics.js 两条取径，各 +1，却没跟改
+// 这两个数，闸就一直红在 42 / 61。同一轮还查出 studio.css 内联 SVG 里的 url(%23n) 被
+// 当成一条取径（43 条里虚高一条）——data: URI 现在先抹掉再扫，42 才是真的。
 // 钉的强度不变：改动页面而不动这两个数，一样会红。
-const EXPECT_CHECKS = 40;
+const EXPECT_CHECKS = 42;
 // 全绿时这个闸实际跑的断言条数（W/R/P 三段之和）。钉住它，「少一条断言」就不可能是绿的：
 // 删掉 manifest 里的一张图标会同时少一条 R10 与那张的 P1/P2 两行——那条路径缺文件本来就该红，
 // 但 rows 能漂就是闸在缩水的信号，所以两个数一起钉。
-const EXPECT_ROWS = 59;
+const EXPECT_ROWS = 61;
 
 let rows = 0;
 const fails = [];
@@ -174,6 +175,13 @@ const stripComments = (src, blocksOnly) => {
   return out;
 };
 
+// 把内联 data: URI 整段换成占位，长度不是重点（本闸不拿它做行号），只求它里面再出现的
+// url(#id) 之类不会被当成一条取径。带引号与不带引号两种写法都认，且先吃带引号的，
+// 否则内层的 %23n 会被先切出来。
+const maskDataUrls = (css) => css
+  .replace(/url\(\s*(['"])data:[\s\S]*?\1\s*\)/gi, 'url(data:masked)')
+  .replace(/url\(\s*data:[^)\s]*/gi, 'url(data:masked');
+
 const dirOf = (r) => {
   const d = path.posix.dirname(r);
   return d === '.' ? '' : d;
@@ -257,7 +265,11 @@ for (let k = 0; k < refs.length; k += 1) {
     continue;
   }
   if (r.endsWith('.css')) {
-    for (const m of stripComments(text, true).matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)) {
+    // data: URI 里可以合法地再写 url(#id)（studio.css 的 SVG 噪点滤镜就是 url(%23n)）。
+    // 那不是一条取径，按它解析出来的是 css/%23n 这种产物里永远不会有的文件名——先把整段
+    // data: URI 抹成占位再扫，否则这条闸会为一段内联图形永远红着，而真有引用缺文件时反被淹没。
+    const css = maskDataUrls(stripComments(text, true));
+    for (const m of css.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)) {
       push(r, m[1], dirOf(r));
     }
     continue;

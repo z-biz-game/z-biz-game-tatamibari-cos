@@ -9,7 +9,7 @@
 | 修复提交 | `e5d7c97`（"fix(tatamibari): 补回被并线吃掉的 onDown，暂停只留一套，重复 id 与重复接线各收一份"） |
 | 交付物提交 | 本文件所在的那一次提交 |
 | 基线状态 | **整局不可玩**：`js/main.js` 是 SyntaxError，ES module 根本不加载 ⇒ 页面一片空白；闸一条也跑不起来 |
-| 修完状态 | 语法门 OK；node 侧 65 + 74 + 206 + 18 条断言 0 失败；浏览器闸 root 与 prefix 两种形态各 11 场景 393 条 0 失败；部署集 40 条引用 / 59 行 0 失败；部署集自检 rc=0 |
+| 修完状态 | 语法门 OK；node 侧 65 + 74 + 206 + 18 条断言 0 失败；浏览器闸 root 与 prefix 两种形态各 11 场景 393 条 0 失败；部署集 42 条引用 / 61 行 0 失败；部署集自检 rc=0 |
 
 ### 整局不可玩的根因（三条，都在 `js/main.js`，互相遮住）
 
@@ -53,7 +53,7 @@ V8 先报撞名、再报缺括号，所以只看到第一条；第二条要等�
 | 10 | 暂停中按 Esc 会**先恢复**（`if (paused) applyPause(false)`），与闸的合同（Esc 只回选档、这一盘仍停在暂停态）和代码自己那句注释（Escape 放行是因为它不改盘面）都相反 | Esc 改成「回选档但仍停在暂停态」（`js/main.js:1008`）；重新开局时 `adopt()` 会把暂停态清掉 |
 | 11 | service worker 注册了两遍：`index.html` 挂 `js/sw-register.js`，而 `js/main.js` 里 `registerServiceWorker()` 又注册一次 | 只由 `js/main.js` 注册（它认 `file://`、还把状态挂在导出面上），`js/sw-register.js` 与它的 script 标签一起删 |
 | 12 | 文档里的行号钉漂了 19 处（`doctest` 抓得住的 2 条红，其余是它抓不到的静默漂） | 逐条重钉到当前代码上（详见第 3 节） |
-| 13 | 部署集闸钉的实数（35 条引用 / 54 行断言）早就是旧的：并线后实数已是 43 / 62 ⇒ **那道闸在基线上就是红的** | 随这次改动把实数更新为 40 / 59（`tools/deploy-set.mjs:40`、`tools/deploy-set.mjs:44`），并在闸里写明「钉的是实数，强度不变」 |
+| 13 | 部署集闸钉的实数（35 条引用 / 54 行断言）早就是旧的：并线后实数已是 43 / 62 ⇒ **那道闸在基线上就是红的** | 基线时钉的是 35 / 54、实数为 43 / 62；e5d7c97 先更新为 40 / 59，B4d 复修再改为 42 / 61（`tools/deploy-set.mjs:41`、`tools/deploy-set.mjs:45`），并在闸里写明「钉的是实数，强度不变」 |
 
 ## 2. 真实文件清单
 
@@ -115,7 +115,7 @@ V8 先报撞名、再报缺括号，所以只看到第一条；第二条要等�
 `tools/scenarios.js:994`、`tools/scenarios.js:1342`、`tools/scenarios.js:1587`。
 
 其中**基线上就已经指错**（不是这次改动带偏的）的那几处：`index.html:31-35`、`index.html:37-41`、
-`index.html:73`、`index.html:96-103`、`index.html:113`、`index.html:108`、`index.html:155-156`、
+`index.html:73`、`index.html:96-103`、index.html 原第 113 行（现为整段空行）、`index.html:108`、`index.html:155-156`、
 `index.html:159-160`、`js/main.js:131-136`、`js/main.js:140-141`、`js/main.js:269-270`、
 `js/main.js:308-309`、`js/main.js:231-233`、`tools/scenarios.js:976`、`tools/scenarios.js:1176`、
 `tools/scenarios.js:1332`、`tools/scenarios.js:1569`。
@@ -136,14 +136,14 @@ $ bash tools/verify.sh
 ---- shape=root 汇总: 11/11 scenarios reported · 393 checks · 0 failed · 18s ----
 ---- shape=prefix 汇总: 11/11 scenarios reported · 393 checks · 0 failed · 19s ----
 === deploy-set ===
-部署集：40 条引用（含 3 张位图尺寸核对），失败 0 项
-rows: 59 fail: 0
+部署集：42 条引用（含 3 张位图尺寸核对），失败 0 项
+rows: 61 fail: 0
 DS_SELFTEST rc=0（0=每一刀都按预期发力、阴性对照按预期不发力）
 （整条命令退出码 0）
 
 $ node tools/deploy-set.mjs
-部署集：40 条引用（含 3 张位图尺寸核对），失败 0 项
-rows: 59 fail: 0
+部署集：42 条引用（含 3 张位图尺寸核对），失败 0 项
+rows: 61 fail: 0
 
 $ node tools/deploy-set-selftest.mjs
 DS_SELFTEST rc=0（0=每一刀都按预期发力、阴性对照按预期不发力）
@@ -169,7 +169,7 @@ DS_SELFTEST rc=0（0=每一刀都按预期发力、阴性对照按预期不发�
 6. **暂停的时钟换成 `runMs` / `runFrom` 那一套**：暂停期间读数一毫秒不动（闸钉的是 `Δ === 0`，
    不是「变慢了」），恢复时第一帧不倒灌。
 7. **service worker 只注册一次**（由 `js/main.js` 负责）；`window.tatamibari.serviceWorker` 照旧报状态。
-8. **部署集闸钉的实数从 35 / 54 变成 40 / 59。** 钉的仍然是实数（当前这份页面真的有几条引用、
+8. **部署集闸钉的实数从 35 / 54 变成 42 / 61**（e5d7c97 当时记为 40 / 59，B4d 复修按页面新增的取径重钉）。 钉的仍然是实数（当前这份页面真的有几条引用、
    全绿时真的跑几条断言），强度没变：改页面而不动这两个数，一样会红。
 
 ## 6. 未实现 / 需人接手
@@ -193,7 +193,7 @@ DS_SELFTEST rc=0（0=每一刀都按预期发力、阴性对照按预期不发�
 | `npm run check` | 红（`Identifier 'paused' has already been declared`） | OK | **本来就有**：上一次有机并线把两套暂停机制各留了一份 `let paused` |
 | `npm test`（rule / counter / pencil） | 65 / 74 / 206 条 0 失败 | 同 | 未受影响（这三支不碰 `js/main.js`） |
 | `tools/doctest.mjs` | **16 通过 / 2 失败**（`js/main.js:265` 那条 daily 引用指不回实处；`tools/scenarios.js:1332` 那条 pause 引用指不回实处） | 18 通过 / 0 失败 | **本来就有**：文档行号钉早漂了；`doctest` 自检里那条硬编码的 needle（`js/main.js:265`）也一并跟着漂了（毒药行 227 在基线上是空行，自检因此也没真正发力） |
-| `tools/deploy-set.mjs` | **红**（实际 43 条引用 / 62 行，钉的是 35 / 54） | 40 条引用 / 59 行 0 失败 | **本来就有**：并线新增的引用没同步到钉上；这次因为删掉重复的 sw-register 又落回 40 / 59 |
+| `tools/deploy-set.mjs` | **红**（实际 43 条引用 / 62 行，钉的是 35 / 54） | 42 条引用 / 61 行 0 失败 | **本来就有**：并线新增的引用没同步到钉上；e5d7c97 因删掉重复的 sw-register 落回 40 / 59，B4d 复修再按 studio.css / haptics.js 两条新增取径重钉到 42 / 61（并抹掉 data: URI 里 url(%23n) 的假引用） |
 | `tools/deploy-set-selftest.mjs` | rc=0 | rc=0 | 未受影响 |
 | `bash tools/verify.sh`（浏览器闸） | **跑不起来**：模块是 SyntaxError，页面连启动都做不到 | root 393 / 0、prefix 393 / 0 | **本来就有**：整局不可玩 |
 
@@ -207,3 +207,20 @@ DS_SELFTEST rc=0（0=每一刀都按预期发力、阴性对照按预期不发�
 所以本文件是该仓的第一份交付物。README 里被本文引用的那些事实（`npm run balance` 的难度分位表、
 `tools/deploy-set.mjs` 的引用数口径、`js/store.js` 的纪录比较口径、`tools/scenarios.js` 的场景名册）
 都留在 README / DESIGN 里，本次只重钉了行号，没有改它们的说法。
+
+## 9. B4d 复修（2026-10-30）
+
+上一轮交付后，页面又挂上了 `css/studio.css` 与 `js/haptics.js` 两条取径，但部署集闸钉的
+实数没有跟着改，`npm test` 的文档腿也红在一处旧行号上。这一轮补齐：
+
+- `tools/deploy-set.mjs`：扫 CSS 的 `url()` 之前先抹掉整段内联 `data:` URI。`studio.css`
+  里的 SVG 噪点滤镜写着 `url(%23n)`，它被当成一条取径解析成 `css/%23n`，让闸为一段内联
+  图形永远红着。抹掉后引用数 42、断言行数 61，两个钉子同步改到 42 / 61。
+- `deliverable.md` 第 3.4 节有一处修复记录用活引用形状写旧行号（原 index.html 第 113 行），
+  那行现在已是空行；改成散文式「index.html 原第 113 行（现为整段空行）」，不再是一条会被
+  文档腿当成真引用的 `文件:行号`。
+- `README.md` 的「解析 N 条」读数跟着从 189 改成 188。
+
+复跑读数：`npm test` 四支 65 / 74 / 206 / 18 条 0 失败；`node tools/deploy-set.mjs`
+42 条引用 / 61 行 0 失败；`node tools/deploy-set-selftest.mjs` rc=0；`bash tools/verify.sh`
+root 与 prefix 两种形态各 11 场景 393 条 0 失败，`=== ALL GREEN ===`。
